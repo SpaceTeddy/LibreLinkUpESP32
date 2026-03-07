@@ -123,6 +123,28 @@ bool LIBRELINKUP::has_credentials() const {
     return !(llu_login_data.email.isEmpty() || llu_login_data.password.isEmpty());
 }
 
+bool LIBRELINKUP::token_present() const {
+    return !llu_login_data.user_token.isEmpty();
+}
+
+bool LIBRELINKUP::password_set() const {
+    return !llu_login_data.password.isEmpty();
+}
+
+String LIBRELINKUP::masked_user_token(size_t head, size_t tail) const {
+    const String& t = llu_login_data.user_token;
+    if (t.length() == 0) return "";
+    if (t.length() <= (head + tail + 3)) return "***";
+    return t.substring(0, head) + "..." + t.substring(t.length() - tail);
+}
+
+void LIBRELINKUP::clear_sensitive_runtime_data() {
+    // Best-effort cleanup of in-memory secrets/tokens.
+    llu_login_data.password = "";
+    llu_login_data.user_token = "";
+    llu_login_data.user_token_expires = 0;
+}
+
 /**
  * @brief Extracts the host name from a URL or host string.
  *
