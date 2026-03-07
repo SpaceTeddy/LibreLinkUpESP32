@@ -413,6 +413,10 @@ public:
     uint16_t auth_user(String user_email, String user_password);
     void set_credentials(const String& user_email, const String& user_password);
     bool has_credentials() const;
+    bool token_present() const;
+    bool password_set() const;
+    String masked_user_token(size_t head = 6, size_t tail = 4) const;
+    void clear_sensitive_runtime_data();
 
     /**
      * @brief Accept Terms of Use
