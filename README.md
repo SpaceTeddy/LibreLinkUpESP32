@@ -132,7 +132,7 @@ Use this checklist when adding the library from Git into another project.
    - In `platformio.ini`:
 ```ini
 lib_deps =
-  https://github.com/<your-user>/LibreLinkUpESP32.git
+  https://github.com/SpaceTeddy/LibreLinkUpESP32.git
   bblanchon/ArduinoJson@^6.21.5
   https://github.com/nomis/mcu-uuid-log.git
 ```
