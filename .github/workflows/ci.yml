@@ -26,12 +26,17 @@ jobs:
       - name: Install PlatformIO
         run: pip install platformio
 
+      - name: Install library dependencies
+        run: |
+          pio pkg install --global \
+            --library "bblanchon/ArduinoJson@^6.21.5" \
+            --library "https://github.com/nomis/mcu-uuid-log.git"
+
       - name: Build minimal example
         run: |
           platformio ci \
             --project-option "platform=espressif32" \
             --project-option "framework=arduino" \
-            --project-option "lib_deps=bblanchon/ArduinoJson@^6.21.5,https://github.com/nomis/mcu-uuid-log.git" \
             --board ${{ matrix.board }} \
             --lib . \
             examples/minimal_fetch/minimal_fetch.ino
@@ -41,7 +46,6 @@ jobs:
           platformio ci \
             --project-option "platform=espressif32" \
             --project-option "framework=arduino" \
-            --project-option "lib_deps=bblanchon/ArduinoJson@^6.21.5,https://github.com/nomis/mcu-uuid-log.git" \
             --board ${{ matrix.board }} \
             --lib . \
             examples/error_handling/error_handling.ino
