@@ -1,7 +1,7 @@
 /**
  * @file librelinkup.h
  * @brief LibreLinkUp API Client Library for ESP32
- * @version 1.0
+ * @version 1.1.0
  * 
  * Comprehensive interface for Abbott LibreLinkUp CGM system integration
  * Includes SSL/TLS management, sensor data processing, and API communication
@@ -18,8 +18,15 @@
  * @{
  */
 #include <Arduino.h>                ///< Arduino core functions
-class HTTPClient;                   ///< Forward declaration
-class WiFiClientSecure;             ///< Forward declaration
+#include <HTTPClient.h>             ///< HTTP client
+#include <WiFiClientSecure.h>       ///< TLS client
+#include <ArduinoJson.h>           ///< JSON parsing
+#include <mbedtls/sha256.h>        ///< SHA256 hashing
+#include <FS.h>
+#include <LittleFS.h>
+#include <string.h>
+#include <uuid/log.h>
+
 namespace fs { class FS; }          ///< Forward declaration
 /** @} */
 
@@ -28,7 +35,7 @@ namespace fs { class FS; }          ///< Forward declaration
  * @brief Global configuration and debug settings
  * @{
  */
-#define VERSION_LIBRELINKUP_LIB 1.1 ///< Library version identifier
+#define VERSION_LIBRELINKUP_LIB "1.1.0" ///< Library version identifier
 #define DBGprint_LLU Serial.printf("[%08dms][%s][%s] ",millis(),__FILE__,__func__); ///< Debug output formatter
 #define LIBRELINKUP_DEBUG 0         ///< Global debug flag (0=disabled)
 /** @} */
@@ -117,6 +124,10 @@ private:
 
     // parse graph json document  
     bool parse_graph_json_doc();  // ONE parser for both sources
+
+    // Internal network clients (encapsulated inside library).
+    WiFiClientSecure secure_client_;
+    HTTPClient http_client_;
 
     // last fetched graph json data
     String last_graph_json;
