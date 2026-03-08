@@ -107,11 +107,36 @@ After a successful `get_graph_data()` call:
   - `sensor_lifetime()`
   - `login_data()`
 
-## 9. Note
+## 9. API stability
+
+Stable API (recommended for long-term integration):
+- `begin(...)`
+- `set_credentials(...)`
+- `auth_user(...)`
+- `tou_user()`
+- `get_connection_data()`
+- `get_graph_data()`
+- `glucose_data()`
+- `sensor_data()`
+- `sensor_history_data()`
+- `sensor_lifetime()`
+- `status()`
+- `login_data()`
+
+Advanced/low-level API (may change between minor versions):
+- `setCAfromfile(...)`
+- `showCAfromfile(...)`
+- `download_root_ca_to_file(...)`
+- `check_https_connection(...)`
+- `read2String(...)`
+- `parseTimestamp(...)`
+- `get_wifisecureclient()`
+
+## 10. Note
 
 The library uses internal logging (`uuid::log::Logger`) and is designed for ESP32/Arduino.
 
-## 10. Certificate mode recommendation
+## 11. Certificate mode recommendation
 
 - `begin(1)`:
   - Best default for new users
@@ -122,9 +147,10 @@ The library uses internal logging (`uuid::log::Logger`) and is designed for ESP3
   - Requires valid cert file handling in LittleFS
 
 - `begin(0)`:
-  - Insecure (testing only)
+  - Insecure (testing only, not for production)
+  - TLS certificate validation is disabled and enables MITM attacks
 
-## 11. Integration checklist (Git/PlatformIO)
+## 12. Integration checklist (Git/PlatformIO)
 
 Use this checklist when adding the library from Git into another project.
 
@@ -169,3 +195,20 @@ if (librelinkup.get_graph_data() == 1) {
    - Verify Wi-Fi is still connected.
    - Try `begin(1)` before debugging cert files.
    - Check serial logs for auth/TLS messages.
+
+## 13. Examples
+
+- `examples/minimal_fetch/minimal_fetch.ino`: minimal polling loop.
+- `examples/error_handling/error_handling.ino`: robust retry and diagnostics flow.
+
+## 14. Release checklist
+
+1. Bump version in `library.json` and `VERSION_LIBRELINKUP_LIB` in header.
+2. Update `CHANGELOG.md`.
+3. Run CI and ensure all checks are green.
+4. Create a Git tag, for example `v1.1.0`.
+5. Test installation from tag in a fresh PlatformIO project:
+```ini
+lib_deps =
+  https://github.com/SpaceTeddy/LibreLinkUpESP32.git#v1.1.0
+```
