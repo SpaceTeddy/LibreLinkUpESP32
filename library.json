@@ -1,6 +1,6 @@
 {
   "name": "LibreLinkUpESP32",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "LibreLinkUp/LibreView client library for ESP32 (Arduino framework)",
   "keywords": ["librelinkup", "libreview", "cgm", "esp32", "arduino"],
   "license": "GPL-2.0-only",
