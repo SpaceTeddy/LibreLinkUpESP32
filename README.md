@@ -19,6 +19,20 @@ License: GNU General Public License v2.0 (`GPL-2.0-only`). See `LICENSE`.
 - Valid LibreLinkUp credentials (email + password)
 - LittleFS available (if certificate mode `2` is used)
 
+### Dependency note (PlatformIO)
+
+Only external libraries are listed in `library.json` dependencies:
+- `bblanchon/ArduinoJson`
+- `nomis/mcu-uuid-log`
+
+Core headers used by this library are provided by the ESP32 Arduino core/toolchain and are therefore **not** listed as extra dependencies:
+- `WiFiClientSecure.h`
+- `HTTPClient.h`
+- `FS.h`
+- `LittleFS.h`
+- `mbedtls/sha256.h`
+- `string.h`
+
 ## 3. Include and instantiate
 
 ```cpp

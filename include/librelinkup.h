@@ -18,8 +18,15 @@
  * @{
  */
 #include <Arduino.h>                ///< Arduino core functions
-class HTTPClient;                   ///< Forward declaration
-class WiFiClientSecure;             ///< Forward declaration
+#include <HTTPClient.h>             ///< HTTP client
+#include <WiFiClientSecure.h>       ///< TLS client
+#include <ArduinoJson.h>           ///< JSON parsing
+#include <mbedtls/sha256.h>        ///< SHA256 hashing
+#include <FS.h>
+#include <LittleFS.h>
+#include <string.h>
+#include <uuid/log.h>
+
 namespace fs { class FS; }          ///< Forward declaration
 /** @} */
 
@@ -117,6 +124,10 @@ private:
 
     // parse graph json document  
     bool parse_graph_json_doc();  // ONE parser for both sources
+
+    // Internal network clients (encapsulated inside library).
+    WiFiClientSecure secure_client_;
+    HTTPClient http_client_;
 
     // last fetched graph json data
     String last_graph_json;

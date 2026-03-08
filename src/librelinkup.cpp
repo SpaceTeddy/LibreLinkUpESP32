@@ -9,16 +9,6 @@
 
 #include <librelinkup.h>
 
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
-
-#include <mbedtls/sha256.h>
-
-#include <FS.h>
-#include <LittleFS.h>
-#include <string.h>
-#include <uuid/log.h>
 
 // Google Trust Services R4 Root CA for api.libreview.io
 static const char API_ROOT_CA[] PROGMEM = R"CERT(...)CERT";
@@ -31,10 +21,6 @@ static const char API_ROOT_CA[] PROGMEM = R"CERT(...)CERT";
 // DynamicJsonDocument mit dem PSRAM-Speicher initialisieren
 DynamicJsonDocument* json_librelinkup = new DynamicJsonDocument(LIBRELINKUP_JSON_BUFFER_SIZE);
 DynamicJsonDocument* json_filter = new DynamicJsonDocument(LIBRELINKUP_FILTER_JSON_BUFFER_SIZE);
-
-// HTTP Client und Secure Client für LibreLinkUp API
-WiFiClientSecure *llu_client = new WiFiClientSecure;
-HTTPClient https;
 
 //------------------------[uuid logger]-----------------------------------
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
@@ -58,14 +44,14 @@ uint32_t LIBRELINKUP::convertToMillis(uint8_t hours, uint8_t minutes, uint8_t se
  *
  * @param llu_http The HTTP client instance.
  */
-void LIBRELINKUP::addDefaultLLUHeaders(HTTPClient& https) {
-    https.addHeader("User-Agent", "Mozilla/5.0");
-    https.addHeader("Content-Type", "application/json");
-    https.addHeader("version", "4.16.0");
-    https.addHeader("product", "llu.ios");
-    https.addHeader("Connection", "close");
-    https.addHeader("Pragma", "no-cache");
-    https.addHeader("Cache-Control", "no-cache");
+void LIBRELINKUP::addDefaultLLUHeaders(HTTPClient& http_client_) {
+    http_client_.addHeader("User-Agent", "Mozilla/5.0");
+    http_client_.addHeader("Content-Type", "application/json");
+    http_client_.addHeader("version", "4.16.0");
+    http_client_.addHeader("product", "llu.ios");
+    http_client_.addHeader("Connection", "close");
+    http_client_.addHeader("Pragma", "no-cache");
+    http_client_.addHeader("Cache-Control", "no-cache");
 }
 
 /**
@@ -77,10 +63,10 @@ void LIBRELINKUP::addDefaultLLUHeaders(HTTPClient& https) {
  * @param bearer      The bearer token for authentication.
  * @param accountId   The account ID for the request.
  */
-void LIBRELINKUP::addAuthHeaders(HTTPClient& https, const String& bearer, const String& accountId) {
-    https.addHeader("Authorization", "Bearer " + bearer);
+void LIBRELINKUP::addAuthHeaders(HTTPClient& http_client_, const String& bearer, const String& accountId) {
+    http_client_.addHeader("Authorization", "Bearer " + bearer);
     if (accountId.length()) {
-        https.addHeader("Account-ID", accountId);
+        http_client_.addHeader("Account-ID", accountId);
     }
 }
 
@@ -217,22 +203,22 @@ uint8_t LIBRELINKUP::begin(uint8_t use_cert) {
     logger.info("API Server IP: %s", api_ip.toString().c_str());
 
     // setup http client
-    https.useHTTP10(false);
-    https.setTimeout(10000);
-    https.setReuse(false);
-    llu_client->setTimeout(10000);
-    //llu_client->setNoDelay(false);
+    http_client_.useHTTP10(false);
+    http_client_.setTimeout(10000);
+    http_client_.setReuse(false);
+    secure_client_.setTimeout(10000);
+    //secure_client_.setNoDelay(false);
 
     if(use_cert == 0){
-        llu_client->setInsecure();
+        secure_client_.setInsecure();
     }else if(use_cert == 1){
-        llu_client->setCACert(API_ROOT_CA);
+        secure_client_.setCACert(API_ROOT_CA);
     }else if(use_cert == 2){
-        if(setCAfromfile(*llu_client, path_root_ca_googler4) == 0){
+        if(setCAfromfile(secure_client_, path_root_ca_googler4) == 0){
             DBGprint_LLU; Serial.printf("download GoogleTrustService Root R4 certificate\r\n");
             download_root_ca_to_file(url_check_GoogleTrustRootR4, path_root_ca_googler4);
         }
-        setCAfromfile(*llu_client, path_root_ca_googler4);
+        setCAfromfile(secure_client_, path_root_ca_googler4);
     }
 
     return 1;
@@ -270,9 +256,9 @@ String LIBRELINKUP::account_id_sha256(String user_id){
  */
 bool LIBRELINKUP::check_client(){
 
-    if(llu_client->connected() == 0){
-        llu_client->stop();
-        https.end();
+    if(secure_client_.connected() == 0){
+        secure_client_.stop();
+        http_client_.end();
         return 0;
     }
     return 1;
@@ -590,26 +576,26 @@ uint16_t LIBRELINKUP::tou_user(void){
     
     uint8_t result = 0;
 
-    if (https.begin(*llu_client, base_url + url_user_tou)) {
+    if (http_client_.begin(secure_client_, base_url + url_user_tou)) {
         //delay(10);        
         vTaskDelay(pdMS_TO_TICKS(10));
         //Serial.println("Connected to: " + url);
 
-        addDefaultLLUHeaders(https);
-        addAuthHeaders(https, llu_login_data.user_token, "");
+        addDefaultLLUHeaders(http_client_);
+        addAuthHeaders(http_client_, llu_login_data.user_token, "");
 
         // JSON data to send with HTTP POST
         String httpRequestData = "";           
         
         // Send HTTP POST request
-        int code = https.POST(httpRequestData);
+        int code = http_client_.POST(httpRequestData);
         DBGprint_LLU;Serial.printf("HTTP Code: [%d]\r\n", code);
 
         if (code > 0) {
             if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
                 
                 //Parse response
-                deserializeJson((*json_librelinkup), https.getStream());
+                deserializeJson((*json_librelinkup), http_client_.getStream());
                     
                 //Read values
                 //serializeJsonPretty(*json_librelinkup, Serial);Serial.println();
@@ -638,16 +624,16 @@ uint16_t LIBRELINKUP::tou_user(void){
             }
         }
         else {
-            DBGprint_LLU; Serial.printf("[HTTP] POST... failed, error: %s\r\n", https.errorToString(code).c_str());
-            logger.debug("[HTTP] POST... failed, error: %s\r\n", https.errorToString(code).c_str());
+            DBGprint_LLU; Serial.printf("[HTTP] POST... failed, error: %s\r\n", http_client_.errorToString(code).c_str());
+            logger.debug("[HTTP] POST... failed, error: %s\r\n", http_client_.errorToString(code).c_str());
         }
         // Free resources
-        https.end();
+        http_client_.end();
         //check if client is still connected
-        if(llu_client->connected()){
-            DBGprint_LLU;Serial.printf("LLU client connected: %d\r\n",llu_client->connected());
-            llu_client->flush();
-            llu_client->stop();
+        if(secure_client_.connected()){
+            DBGprint_LLU;Serial.printf("LLU client connected: %d\r\n",secure_client_.connected());
+            secure_client_.flush();
+            secure_client_.stop();
         }
         result = 1;
     }
@@ -669,22 +655,22 @@ uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
     set_credentials(user_email, user_password);
 
     // important: pro call reset
-    llu_client->stop();
-    https.end();
+    secure_client_.stop();
+    http_client_.end();
 
-    if (https.begin(*llu_client, base_url + url_user_auth)) {
+    if (http_client_.begin(secure_client_, base_url + url_user_auth)) {
         vTaskDelay(pdMS_TO_TICKS(10));
 
-        addDefaultLLUHeaders(https);
+        addDefaultLLUHeaders(http_client_);
 
         String httpRequestData = "{\"email\":\"" + user_email + "\",\"password\":\"" + user_password + "\"}";
-        int code = https.POST(httpRequestData);
+        int code = http_client_.POST(httpRequestData);
 
         logger.debug("HTTP Code: [%d]\r\n", code);
 
         if (code > 0 && (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY)) {
 
-            deserializeJson((*json_librelinkup), https.getStream());
+            deserializeJson((*json_librelinkup), http_client_.getStream());
             //serializeJsonPretty(*json_librelinkup, Serial); Serial.println();
 
             bool redirect = (*json_librelinkup)["data"]["redirect"] | false;
@@ -695,7 +681,7 @@ uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
             if (redirect) {
                 DBGprint_LLU;Serial.printf("Login redirect requested, region=%s\n\r", region.c_str());
                 logger.notice("Login redirect requested, region=%s", region.c_str());
-                https.end();
+                http_client_.end();
 
                 static char base_url_buf[64];
 
@@ -704,7 +690,7 @@ uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
                 base_url = base_url_buf;
 
                 json_librelinkup->clear();
-                llu_client->stop();
+                secure_client_.stop();
 
                 // retry once
                 return auth_user(user_email, user_password);
@@ -723,8 +709,8 @@ uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
             result = 1;
         }
 
-        https.end();
-        llu_client->stop();
+        http_client_.end();
+        secure_client_.stop();
     }
 
     return result;
@@ -757,14 +743,14 @@ uint16_t LIBRELINKUP::get_connection_data(void){
     }
 
     // get API graph data from LibreView server 
-    if(https.begin(*llu_client, base_url + url_connection)) {
+    if(http_client_.begin(secure_client_, base_url + url_connection)) {
         vTaskDelay(pdMS_TO_TICKS(10));
 
         // Add LLU default headers
-        addDefaultLLUHeaders(https);
-        addAuthHeaders(https, llu_login_data.user_token, llu_login_data.account_id);
+        addDefaultLLUHeaders(http_client_);
+        addAuthHeaders(http_client_, llu_login_data.user_token, llu_login_data.account_id);
 
-        int code = https.GET();
+        int code = http_client_.GET();
         //DBGprint_LLU;Serial.printf("HTTP Code: [%d]\r\n", code);
 
         if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
@@ -794,7 +780,7 @@ uint16_t LIBRELINKUP::get_connection_data(void){
             */
 
             // Deserialize the document with json_filter setting. keep buffer size in mind.
-            deserializeJson((*json_librelinkup), https.getStream(), DeserializationOption::Filter(*json_filter));
+            deserializeJson((*json_librelinkup), http_client_.getStream(), DeserializationOption::Filter(*json_filter));
                 
             // Print the result
             //serializeJsonPretty(((*json_librelinkup)), Serial); Serial.println();
@@ -842,7 +828,7 @@ uint16_t LIBRELINKUP::get_connection_data(void){
 
             result = 1;
         } else {
-            DBGprint_LLU; Serial.printf("[HTTP] GET... failed, error: %s\r\n", https.errorToString(code).c_str());
+            DBGprint_LLU; Serial.printf("[HTTP] GET... failed, error: %s\r\n", http_client_.errorToString(code).c_str());
             result = 0;
                         
             if (code == HTTP_CODE_UNAUTHORIZED) {    // Token auth error handling
@@ -853,17 +839,17 @@ uint16_t LIBRELINKUP::get_connection_data(void){
             }
         }
         // Free llu_http resources
-        https.end();
+        http_client_.end();
 
     }else{
         result = 0;
     }
 
     //check if client is still connected
-    if(llu_client->connected()){
-        DBGprint_LLU;Serial.printf("LLU client still connected: %d\r\n",llu_client->connected());
-        llu_client->flush();
-        llu_client->stop();
+    if(secure_client_.connected()){
+        DBGprint_LLU;Serial.printf("LLU client still connected: %d\r\n",secure_client_.connected());
+        secure_client_.flush();
+        secure_client_.stop();
     }
 
     return result;
@@ -899,15 +885,15 @@ uint16_t LIBRELINKUP::get_graph_data(void){
     url_graph = "/llu/connections/" + llu_login_data.user_id + "/graph";
 
     // get API graph data from LibreView server 
-    if (https.begin(*llu_client, base_url + url_graph)) {
+    if (http_client_.begin(secure_client_, base_url + url_graph)) {
         vTaskDelay(pdMS_TO_TICKS(10));        
 
         // Add LLU default headers
-        addDefaultLLUHeaders(https);
-        addAuthHeaders(https, llu_login_data.user_token, llu_login_data.account_id);
+        addDefaultLLUHeaders(http_client_);
+        addAuthHeaders(http_client_, llu_login_data.user_token, llu_login_data.account_id);
 
-        int code = https.GET();
-        logger.debug("HTTP code=%d size=%d", code, https.getSize());
+        int code = http_client_.GET();
+        logger.debug("HTTP code=%d size=%d", code, http_client_.getSize());
         
         if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
 
@@ -942,7 +928,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 (*json_filter)["data"]["graphData"][0]["Timestamp"] = true;
 
             // Deserialize with filter from buffered body string (more robust with chunked transfer).
-            String body = https.getString();
+            String body = http_client_.getString();
             DeserializationError err = deserializeJson((*json_librelinkup), body,
                                       DeserializationOption::Filter(*json_filter));
 
@@ -950,7 +936,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 logger.debug("HTTPS deserialize failed: %s", err.c_str());
                 json_filter->clear();
                 json_librelinkup->clear();
-                https.end();
+                http_client_.end();
                 return 0;
             }
 
@@ -975,8 +961,8 @@ uint16_t LIBRELINKUP::get_graph_data(void){
             https_llu_api_fetch_time = millis() - https_api_time_measure;
 
         } else {
-            DBGprint_LLU; Serial.printf("[HTTP] GET... failed, error: %s\r\n", https.errorToString(code).c_str());
-            logger.debug("[HTTP] GET... failed, error: %s\r\n", https.errorToString(code).c_str());
+            DBGprint_LLU; Serial.printf("[HTTP] GET... failed, error: %s\r\n", http_client_.errorToString(code).c_str());
+            logger.debug("[HTTP] GET... failed, error: %s\r\n", http_client_.errorToString(code).c_str());
             result = 0;
 
             if (code == HTTP_CODE_UNAUTHORIZED) {
@@ -990,18 +976,18 @@ uint16_t LIBRELINKUP::get_graph_data(void){
         }
 
         // Free llu_http resources
-        https.end();
+        http_client_.end();
 
     } else {
         result = 0;
     }
 
     // check if client is still connected
-    if (llu_client->connected()) {
-        DBGprint_LLU; Serial.printf("LLU client still connected: %d\r\n", llu_client->connected());
-        logger.debug("LLU client still connected: %d\r\n", llu_client->connected());
-        llu_client->flush();
-        llu_client->stop();
+    if (secure_client_.connected()) {
+        DBGprint_LLU; Serial.printf("LLU client still connected: %d\r\n", secure_client_.connected());
+        logger.debug("LLU client still connected: %d\r\n", secure_client_.connected());
+        secure_client_.flush();
+        secure_client_.stop();
     }
 
     return result;
@@ -1136,7 +1122,7 @@ const String& LIBRELINKUP::get_last_graph_json() const {
  * @return A reference to the WiFiClientSecure client.
  */
 WiFiClientSecure & LIBRELINKUP::get_wifisecureclient(void){
-    return *llu_client;
+    return secure_client_;
 }
 
 /**
@@ -1147,13 +1133,13 @@ void LIBRELINKUP::check_https_connection(const char* url){
         
     // Test server connection
     // get API graph data from LibreView server 
-    if(https.begin(*llu_client, url)) {
+    if(http_client_.begin(secure_client_, url)) {
         vTaskDelay(pdMS_TO_TICKS(10));    
 
-        https.addHeader("User-Agent", "Mozilla/5.0");
-        https.addHeader("Content-Type", "application/json");
+        http_client_.addHeader("User-Agent", "Mozilla/5.0");
+        http_client_.addHeader("Content-Type", "application/json");
         
-        int code = https.GET();
+        int code = http_client_.GET();
 
         if (code > 0) {
             if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
@@ -1163,11 +1149,11 @@ void LIBRELINKUP::check_https_connection(const char* url){
             }
         }
         else {
-            DBGprint_LLU; Serial.printf("[HTTP] GET... failed, error: %s\r\n", https.errorToString(code).c_str());
-            logger.debug("[HTTP] GET... failed, error: %s", https.errorToString(code).c_str());
+            DBGprint_LLU; Serial.printf("[HTTP] GET... failed, error: %s\r\n", http_client_.errorToString(code).c_str());
+            logger.debug("[HTTP] GET... failed, error: %s", http_client_.errorToString(code).c_str());
         }
         // Free llu_http resources
-        https.end();
+        http_client_.end();
     }
 }
 
@@ -1261,25 +1247,25 @@ uint16_t LIBRELINKUP::download_root_ca_to_file(const char* download_url, const c
         return 0;
     }
 
-    llu_client->setInsecure();
+    secure_client_.setInsecure();
     DBGprint_LLU;Serial.print("download CA started...");
     logger.notice("download CA started...");
 
     // get API graph data from LibreView server 
-    if(https.begin(*llu_client, download_url)) {
+    if(http_client_.begin(secure_client_, download_url)) {
         //delay(10);
         vTaskDelay(pdMS_TO_TICKS(10));       
 
-        https.addHeader("User-Agent", "Mozilla/5.0");
-        https.addHeader("Content-Type", "application/json");
+        http_client_.addHeader("User-Agent", "Mozilla/5.0");
+        http_client_.addHeader("Content-Type", "application/json");
         
-        int code = https.GET();
+        int code = http_client_.GET();
         //DBGprint_LLU;Serial.printf("HTTP Code: [%d]\r\n", code);
 
         if (code > 0) {
             if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
 
-                https.writeToStream(&file);
+                http_client_.writeToStream(&file);
             }
             result = 1;
             file.close();
@@ -1289,11 +1275,11 @@ uint16_t LIBRELINKUP::download_root_ca_to_file(const char* download_url, const c
         else {
             Serial.println("failed!");
             logger.notice("download failed!");
-            DBGprint_LLU; Serial.printf("[HTTP] GET... failed, error: %s\r\n", https.errorToString(code).c_str());
+            DBGprint_LLU; Serial.printf("[HTTP] GET... failed, error: %s\r\n", http_client_.errorToString(code).c_str());
             result = 0;
         }
         // Free llu_http resources
-        https.end();
+        http_client_.end();
 
     }else{
         result = 0;
