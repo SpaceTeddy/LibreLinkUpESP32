@@ -26,6 +26,9 @@ jobs:
       - name: Install PlatformIO
         run: pip install platformio
 
+      - name: Install ArduinoJson
+        run: pio pkg install -l "ArduinoJson"
+
       - name: Build minimal example
         run: |
           platformio ci \
