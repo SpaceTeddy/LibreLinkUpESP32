@@ -1,0 +1,78 @@
+name: Manual Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (MAJOR.MINOR.PATCH), e.g. 1.2.0"
+        required: true
+        type: string
+      dry_run:
+        description: "Run checks only (no commit/tag/release)"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Make scripts executable
+        run: chmod +x scripts/bump-version.sh scripts/check-version-consistency.sh
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version: '$VERSION' (expected MAJOR.MINOR.PATCH)"
+            exit 1
+          fi
+
+      - name: Ensure tag does not exist
+        run: |
+          TAG="v${{ inputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag already exists: $TAG"
+            exit 1
+          fi
+
+      - name: Bump version
+        run: ./scripts/bump-version.sh "${{ inputs.version }}"
+
+      - name: Check version consistency
+        run: ./scripts/check-version-consistency.sh
+
+      - name: Show changes
+        run: git --no-pager diff -- library.json include/librelinkup.h
+
+      - name: Commit changes
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add library.json include/librelinkup.h
+          git commit -m "chore: release ${{ inputs.version }}"
+
+      - name: Push commit and tag
+        if: ${{ !inputs.dry_run }}
+        run: |
+          TAG="v${{ inputs.version }}"
+          git tag "$TAG"
+          git push origin HEAD
+          git push origin "$TAG"
+
+      - name: Create GitHub release
+        if: ${{ !inputs.dry_run }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          generate_release_notes: true
