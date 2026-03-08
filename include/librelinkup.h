@@ -85,7 +85,6 @@ enum SensorState : uint8_t {
 /** @} */
 
 
-
 /**
  * @struct Sensor History Data
  * @brief Struct for Sensor History Data
@@ -220,6 +219,9 @@ private:
     String url_user_auth  = "/llu/auth/login";       ///< Authentication endpoint
     String url_user_tou   = "/auth/continue/tou";    ///< Terms of use endpoint
 
+    /** @struct GlucoseDataState
+     * @brief Current glucose measurement and related data
+     */
     struct GlucoseDataState {
         uint16_t glucoseMeasurement = 0;             ///< Current measurement (mg/dL)
         uint8_t trendArrow = 0;                      ///< Trend direction code
@@ -233,9 +235,11 @@ private:
         uint16_t glucoseAlarmLow = 0;                ///< Low glucose threshold
         uint16_t glucoseAlarmHigh = 0;               ///< High glucose threshold
         uint16_t glucosefixedLowAlarmValues = 0;     ///< Fixed low alarm setting
-              
     } llu_glucose_data;
 
+    /** @struct SensorDataState
+     * @brief Current sensor status and identifiers
+     */
     struct SensorDataState {
         uint8_t sensor_state = 0;                    ///< Current sensor state
         String sensor_sn_non_active = "";            ///< Inactive sensor serial
@@ -422,11 +426,54 @@ public:
      * - 500: Server error
      */
     uint16_t auth_user(String user_email, String user_password);
+    
+    /** @brief Set user credentials
+     * @param user_email User's email address
+     * @param user_password User's password
+     */
     void set_credentials(const String& user_email, const String& user_password);
+    
+    /** @brief Check if credentials are available
+     * @return true if both email and password are stored, false otherwise
+     */
     bool has_credentials() const;
+    
+    /** @brief Re-authenticate using stored credentials
+     * 
+     * This function attempts to re-authenticate the user using previously stored
+     * email and password. It checks if the credentials are available before
+     * making the authentication request.
+     * 
+     * @return uint16_t HTTP status code:
+     *         - 200: Re-authentication successful
+     *         - 401: Unauthorized (invalid credentials)
+     *         - 500: Server error or other failure
+     */
     bool token_present() const;
+    
+    /** @brief Check if password is set
+     * @return true if a password is stored, false otherwise
+     */
     bool password_set() const;
+    
+    /** @brief Get masked user token for display
+     * @param head Number of characters to show at the beginning
+     * @param tail Number of characters to show at the end
+     * @return Masked user token string
+     */
     String masked_user_token(size_t head = 6, size_t tail = 4) const;
+    
+    /** @brief Re-authenticate using stored credentials
+     * 
+     * This function attempts to re-authenticate the user using previously stored
+     * email and password. It checks if the credentials are available before
+     * making the authentication request.
+     * 
+     * @return uint16_t HTTP status code:
+     *         - 200: Re-authentication successful
+     *         - 401: Unauthorized (invalid credentials)
+     *         - 500: Server error or other failure
+     */
     void clear_sensitive_runtime_data();
 
     /**

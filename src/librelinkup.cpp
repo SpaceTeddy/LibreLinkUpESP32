@@ -109,14 +109,37 @@ bool LIBRELINKUP::has_credentials() const {
     return !(llu_login_data.email.isEmpty() || llu_login_data.password.isEmpty());
 }
 
+/**
+ * @brief Checks if a user token is present.
+ *
+ * This function checks if a user token is available.
+ *
+ * @return true if a token is present, false otherwise.
+ */
 bool LIBRELINKUP::token_present() const {
     return !llu_login_data.user_token.isEmpty();
 }
 
+/**
+ * @brief Checks if the user has set a password.
+ *
+ * This function checks if a password is available.
+ *
+ * @return true if a password is set, false otherwise.
+ */
 bool LIBRELINKUP::password_set() const {
     return !llu_login_data.password.isEmpty();
 }
 
+/**
+ * @brief Returns a masked version of the user token for display purposes.
+ *
+ * This function returns a masked version of the user token, showing only the first and last characters.
+ *
+ * @param head Number of characters to show at the beginning.
+ * @param tail Number of characters to show at the end.
+ * @return The masked user token.
+ */
 String LIBRELINKUP::masked_user_token(size_t head, size_t tail) const {
     const String& t = llu_login_data.user_token;
     if (t.length() == 0) return "";
@@ -124,6 +147,11 @@ String LIBRELINKUP::masked_user_token(size_t head, size_t tail) const {
     return t.substring(0, head) + "..." + t.substring(t.length() - tail);
 }
 
+/**
+ * @brief Clears sensitive runtime data.
+ *
+ * This function clears sensitive data from memory.
+ */
 void LIBRELINKUP::clear_sensitive_runtime_data() {
     // Best-effort cleanup of in-memory secrets/tokens.
     llu_login_data.password = "";
