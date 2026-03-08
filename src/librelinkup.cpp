@@ -13,12 +13,12 @@
 // Google Trust Services R4 Root CA for api.libreview.io
 static const char API_ROOT_CA[] PROGMEM = R"CERT(...)CERT";
 
-// Globale JSON-Pointer
+// Global JSON buffers
 #define LIBRELINKUP_JSON_BUFFER_SIZE        16384 //6144
 #define LIBRELINKUP_FILTER_JSON_BUFFER_SIZE 2048  //1024
 
 
-// DynamicJsonDocument mit dem PSRAM-Speicher initialisieren
+// Initialize DynamicJsonDocument buffers (heap)
 DynamicJsonDocument* json_librelinkup = new DynamicJsonDocument(LIBRELINKUP_JSON_BUFFER_SIZE);
 DynamicJsonDocument* json_filter = new DynamicJsonDocument(LIBRELINKUP_FILTER_JSON_BUFFER_SIZE);
 
@@ -193,11 +193,11 @@ String LIBRELINKUP::extractHost(const String& urlOrHost) {
 uint8_t LIBRELINKUP::begin(uint8_t use_cert) {
 
     IPAddress api_ip;
-    const String host = extractHost(String(base_url));  // <-- base_url kann URL oder Host sein
+    const String host = extractHost(String(base_url));  // base_url can be URL or host
 
     if (!WiFi.hostByName(host.c_str(), api_ip)) {
         logger.debug("DNS failed for host: %s (base_url: %s)", host.c_str(), String(base_url).c_str());
-        return 0;  // <-- wichtig: Fehler wirklich als Fehler behandeln
+        return 0;  // Important: treat DNS failure as a hard error
     }
 
     logger.info("API Server IP: %s", api_ip.toString().c_str());
@@ -272,8 +272,8 @@ time_t LIBRELINKUP::get_epoch_time() {
     time_t now;
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo)) {
-        logger.err("⚠️ Fehler: Konnte lokale Zeit nicht abrufen! Fallback auf `time(nullptr)`.");
-        now = time(nullptr);  // Falls getLocalTime() fehlschlägt, nutze time()
+        logger.err("Failed to get local time. Falling back to `time(nullptr)`. ");
+        now = time(nullptr);  // Fallback if getLocalTime() fails
     } else {
         time(&now);
     }
@@ -290,12 +290,12 @@ int LIBRELINKUP::check_sensor_type(const char *s1, const char *s2) {
     int result = strcmp(s1, s2);
     
     if (result < 0) {
-        return -1;  // s1 ist älter
+        return -1;  // s1 is older
     } else if (result > 0) {
-        return 1;   // s1 ist neuer
+        return 1;   // s1 is newer
     }
     
-    return 0;  // Beide sind identisch
+    return 0;  // Both are identical
 }
 
 /**
@@ -310,7 +310,7 @@ uint8_t LIBRELINKUP::get_sensor_state(uint8_t state){
     switch (state)
     {
     case SENSOR_NOT_STARTED:
-        logger.debug("not yet startet");
+        logger.debug("not started yet");
         break;
     case SENSOR_STARTING:
         //Serial.println("in starting phase");
@@ -350,7 +350,7 @@ int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint32_t s
     struct tm timeinfo;
     time_t now;
 
-    // lokale Zeit holen ------------------
+    // get local time ------------------
     if(!getLocalTime(&timeinfo)){
         DBGprint_LLU; Serial.println("Failed to obtain time");
         return SENSOR_NOT_AVAILABLE;
@@ -358,13 +358,13 @@ int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint32_t s
 
     time(&now); // epoch time
 
-    // Sensor nicht verfügbar
+    // sensor not available
     if(llu_sensor_data.sensor_id_non_active == "" && llu_sensor_data.sensor_sn_non_active == ""){
-        logger.debug("sensor not activ");
+        logger.debug("sensor not active");
         return SENSOR_NOT_AVAILABLE;
     }
 
-    // Warmup-Phase (60 Minuten)
+    // Warmup phase (60 minutes)
     if(llu_sensor_data.sensor_id_non_active == "" && 
        llu_sensor_data.sensor_sn_non_active != "" &&
        unix_activation_time > 0 &&
@@ -372,12 +372,12 @@ int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint32_t s
         logger.debug("sensor in startup phase!");
         int remaining_warmup_time = get_remaining_warmup_time(unix_activation_time);
         logger.debug("sensor available in: %dminutes", remaining_warmup_time);
-        llu_sensor_data.sensor_sn = ""; // reset active sensor sn druring warmup
+        llu_sensor_data.sensor_sn = ""; // reset active sensor SN during warmup
 
         return SENSOR_STARTING;
     }
 
-    // Sensor aktiv & innerhalb Laufzeit
+    // sensor active and within runtime
     if( unix_activation_time > 0 &&
         (unix_activation_time + 3600) <= now &&
         (unix_activation_time + sensor_runtime) > now ){
@@ -385,7 +385,7 @@ int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint32_t s
         logger.debug("Sensor is ready!");
         result = SENSOR_READY;
 
-        // Restlaufzeit berechnen
+        // Calculate remaining runtime
         uint32_t diff_time = (unix_activation_time + sensor_runtime) - now;
 
         sensor_livetime.sensor_valid_days    = diff_time / 86400;
@@ -401,7 +401,7 @@ int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint32_t s
         return result;
     }
 
-    // Sensor abgelaufen
+    // Sensor expired
     if(llu_sensor_data.sensor_id_non_active == "" && 
        llu_sensor_data.sensor_sn_non_active != "" &&
        unix_activation_time > 0 &&
@@ -464,13 +464,13 @@ int LIBRELINKUP::check_sensor_type() {
  * @return The remaining warm-up time in minutes.
  */
 int LIBRELINKUP::get_remaining_warmup_time(time_t unix_activation_time) {
-    time_t current_time = time(NULL);  // Aktuelle Zeit holen (Unix-Zeit)
-    int remaining_time = (unix_activation_time + (60 * 60)) - current_time;  // 60 Minuten Warmup
+    time_t current_time = time(NULL);  // Get current Unix time
+    int remaining_time = (unix_activation_time + (60 * 60)) - current_time;  // 60-minute warmup
 
-    // Falls die Zeit bereits abgelaufen ist, auf 0 setzen
+    // If time already elapsed, clamp to 0
     if (remaining_time < 0) return 0;
 
-    return remaining_time / 60;  // Sekunden in Minuten umrechnen
+    return remaining_time / 60;  // Convert seconds to minutes
 }
 
 /**
@@ -725,7 +725,7 @@ uint16_t LIBRELINKUP::get_connection_data(void){
     
     int8_t result = 0;
     
-    // resets previuos timestamp
+    // reset previous timestamp
     llu_glucose_data.str_measurement_timestamp = "";
     
     // get user ID and Token, if AuthToken not already pulled 
@@ -1174,7 +1174,7 @@ bool LIBRELINKUP::setCAfromfile(WiFiClientSecure &client, const char* ca_file){
     } else {
         size_t certSize = ca.size();
         if(certSize == 0){ // dummy value to check if file content is valid
-            DBGprint_LLU;Serial.println("CA from File is empty. please downlaod again");
+            DBGprint_LLU;Serial.println("CA from File is empty. please download again");
             ca.close();
             return 0;
         }
@@ -1320,30 +1320,30 @@ time_t LIBRELINKUP::parseTimestamp(const char* timestampStr) {
     struct tm tm_time;
     memset(&tm_time, 0, sizeof(struct tm));
 
-    // Parst Datum + Zeit OHNE AM/PM-Interpretation
+    // Parse date + time without AM/PM interpretation
     char timeStr[50];
     strncpy(timeStr, timestampStr, sizeof(timeStr) - 1);
     timeStr[sizeof(timeStr) - 1] = '\0';
 
-    // Prüfe auf AM oder PM
+    // Check for AM or PM
     int is_pm = strstr(timeStr, "PM") != NULL;
 
-    // Entferne AM/PM aus dem String für strptime
+    // Remove AM/PM from the string for strptime
     char clean_timeStr[50];
     strncpy(clean_timeStr, timeStr, sizeof(clean_timeStr) - 1);
     clean_timeStr[sizeof(clean_timeStr) - 1] = '\0';
     char* am_pm = strstr(clean_timeStr, "AM");
     if (!am_pm) am_pm = strstr(clean_timeStr, "PM");
-    if (am_pm) *am_pm = '\0'; // AM/PM entfernen
+    if (am_pm) *am_pm = '\0'; // Remove AM/PM
 
-    // Parse nur Datum + Uhrzeit
+    // Parse date + time only
     char* ret = strptime(clean_timeStr, "%m/%d/%Y %I:%M:%S", &tm_time);
     if (!ret) {
-        DBGprint_LLU; Serial.println("strptime() konnte den String nicht parsen.");
+        DBGprint_LLU; Serial.println("strptime() could not parse the timestamp string.");
         return -1;
     }
 
-    // Manuelle AM/PM Anpassung
+    // Manual AM/PM adjustment
     if (is_pm && tm_time.tm_hour != 12) {
         tm_time.tm_hour += 12; // PM → +12 Stunden
     } else if (!is_pm && tm_time.tm_hour == 12) {
@@ -1378,17 +1378,17 @@ bool LIBRELINKUP::update_tz_offset_once(const String& ts_local, const String& ts
 
     int32_t off_s = (int32_t)difftime(tLocal, tFactory);
 
-    // Sanity: typischerweise ganze Stunden
+    // Sanity: typically full-hour offsets
     if (abs(off_s) > 15 * 3600) {
-        logger.notice("tz: offset implausible: %ld s", (long)off_s);
+        logger.notice("tz: implausible offset: %ld s", (long)off_s);
         return false;
     }
 
-    // korrekt runden (auch für negative Offsets!)
+    // Round correctly (also for negative offsets)
     int16_t off_h = (int16_t)((off_s >= 0) ? ((off_s + 1800) / 3600)
                                            : ((off_s - 1800) / 3600));
 
-    tz_offset_s_locked = off_s;      // volle Sekundengenauigkeit behalten
+    tz_offset_s_locked = off_s;      // Keep full second precision
     tz_offset_h_locked = off_h;
     tz_locked = true;
 

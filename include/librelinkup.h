@@ -79,8 +79,8 @@ enum SensorState : uint8_t {
  * @brief Global configuration of Glucose data
  * @{
  */
-#define DATA_POINTS 141 +1          /// 12 Stunden * 12 Punkte pro Stunde (5 Minuten Intervalle) +1 for last point
-#define INTERVAL_SECONDS 300        /// 5 minuten in seconds
+#define DATA_POINTS 141 +1          /// 12 hours * 12 points per hour (5-minute intervals) +1 for last point
+#define INTERVAL_SECONDS 300        /// 5 minutes in seconds
 #define REQUIRED_DATA_POINTS 141    /// count of max. historical data points
 /** @} */
 
@@ -455,7 +455,7 @@ public:
 
 
     /**
-     * @brief Getter für MQTT
+     *  Getter for MQTT
      * @return 
      */
     const String& get_last_graph_json() const;
