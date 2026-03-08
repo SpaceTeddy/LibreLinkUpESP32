@@ -941,8 +941,9 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 (*json_filter)["data"]["graphData"][0]["FactoryTimestamp"] = true;
                 (*json_filter)["data"]["graphData"][0]["Timestamp"] = true;
 
-            // Deserialize with filter directly from stream to reduce heap pressure.
-            DeserializationError err = deserializeJson((*json_librelinkup), https.getStream(),
+            // Deserialize with filter from buffered body string (more robust with chunked transfer).
+            String body = https.getString();
+            DeserializationError err = deserializeJson((*json_librelinkup), body,
                                       DeserializationOption::Filter(*json_filter));
 
             if (err) {
@@ -1384,7 +1385,7 @@ bool LIBRELINKUP::update_tz_offset_once(const String& ts_local, const String& ts
     time_t tLocal   = parseTimestamp(ts_local.c_str());
     time_t tFactory = parseTimestamp(ts_factory.c_str());
 
-    if (tLocal == 0 || tFactory == 0) {
+    if (tLocal <= 0 || tFactory <= 0) {
         logger.debug("tz: parse failed (local=%ld factory=%ld)", (long)tLocal, (long)tFactory);
         return false;
     }
