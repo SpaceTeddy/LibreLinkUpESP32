@@ -26,14 +26,12 @@ jobs:
       - name: Install PlatformIO
         run: pip install platformio
 
-      - name: Install ArduinoJson
-        run: pio pkg install -l "ArduinoJson"
-
       - name: Build minimal example
         run: |
           platformio ci \
             --project-option "platform=espressif32" \
             --project-option "framework=arduino" \
+            --project-option "lib_deps=bblanchon/ArduinoJson@^6.21.5,https://github.com/nomis/mcu-uuid-log.git" \
             --board ${{ matrix.board }} \
             --lib . \
             examples/minimal_fetch/minimal_fetch.ino
@@ -43,6 +41,7 @@ jobs:
           platformio ci \
             --project-option "platform=espressif32" \
             --project-option "framework=arduino" \
+            --project-option "lib_deps=bblanchon/ArduinoJson@^6.21.5,https://github.com/nomis/mcu-uuid-log.git" \
             --board ${{ matrix.board }} \
             --lib . \
             examples/error_handling/error_handling.ino
