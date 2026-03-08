@@ -452,22 +452,22 @@ int LIBRELINKUP::check_sensor_type() {
             // Sensor is Libre 3 Plus
             logger.debug("Sensor Type: Libre 3 Plus");
             llu_sensor_data.sensor_runtime = UNIXTIME15DAYS; // 15 days runtime
+            already_checked = true;
             return 1;
 
         } else if (cmp == -1) {
             // Sensor is Libre 3
             logger.debug("Sensor Type: Libre 3");
             llu_sensor_data.sensor_runtime = UNIXTIME14DAYS; // 14 days runtime
+            already_checked = true;
             return -1;
 
         } else {
             // Unknown sensor type
             logger.debug("Sensor Type: unknown sensor type");
+            already_checked = true;
             return 0;
         }
-
-        // Set flag so the type is not checked multiple times
-        already_checked = true;
     }
     return 0;
 }
@@ -767,44 +767,43 @@ uint16_t LIBRELINKUP::get_connection_data(void){
         int code = https.GET();
         //DBGprint_LLU;Serial.printf("HTTP Code: [%d]\r\n", code);
 
-        if (code > 0) {
-            if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
+        if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
 
-                // The filter: it contains "true" for each value we want to keep
-                (*json_filter)["data"][0]["glucoseMeasurement"]["Timestamp"] = true;
-                (*json_filter)["data"][0]["glucoseMeasurement"]["ValueInMgPerDl"] = true;
-                (*json_filter)["data"][0]["glucoseMeasurement"]["TrendArrow"] = true;
-                (*json_filter)["data"][0]["glucoseMeasurement"]["TrendMessage"] = true;
-                (*json_filter)["data"][0]["glucoseMeasurement"]["MeasurementColor"] = true;
+            // The filter: it contains "true" for each value we want to keep
+            (*json_filter)["data"][0]["glucoseMeasurement"]["Timestamp"] = true;
+            (*json_filter)["data"][0]["glucoseMeasurement"]["ValueInMgPerDl"] = true;
+            (*json_filter)["data"][0]["glucoseMeasurement"]["TrendArrow"] = true;
+            (*json_filter)["data"][0]["glucoseMeasurement"]["TrendMessage"] = true;
+            (*json_filter)["data"][0]["glucoseMeasurement"]["MeasurementColor"] = true;
                 
-                /*
-                (*json_filter)["data"][0]["targetLow"] = true;
-                (*json_filter)["data"][0]["targetHigh"] = true;
+            /*
+            (*json_filter)["data"][0]["targetLow"] = true;
+            (*json_filter)["data"][0]["targetHigh"] = true;
 
-                (*json_filter)["data"][0]["sensor"]["deviceId"] = true;
-                (*json_filter)["data"][0]["sensor"]["sn"] = true;
-                (*json_filter)["data"][0]["sensor"]["a"] = true;
-                (*json_filter)["data"][0]["sensor"]["pt"] = true;
+            (*json_filter)["data"][0]["sensor"]["deviceId"] = true;
+            (*json_filter)["data"][0]["sensor"]["sn"] = true;
+            (*json_filter)["data"][0]["sensor"]["a"] = true;
+            (*json_filter)["data"][0]["sensor"]["pt"] = true;
 
-                (*json_filter)["data"][0]["patientDevice"]["ll"] = true;
-                (*json_filter)["data"][0]["patientDevice"]["hl"] = true;
-                (*json_filter)["data"][0]["patientDevice"]["fixedLowAlarmValues"]["mgdl"] = true;
+            (*json_filter)["data"][0]["patientDevice"]["ll"] = true;
+            (*json_filter)["data"][0]["patientDevice"]["hl"] = true;
+            (*json_filter)["data"][0]["patientDevice"]["fixedLowAlarmValues"]["mgdl"] = true;
                 
-                (*json_filter)["ticket"]["token"] = true;
-                (*json_filter)["ticket"]["expires"] = true;
-                */
+            (*json_filter)["ticket"]["token"] = true;
+            (*json_filter)["ticket"]["expires"] = true;
+            */
 
-                // Deserialize the document with json_filter setting. keep buffer size in mind.
-                deserializeJson((*json_librelinkup), https.getStream(), DeserializationOption::Filter(*json_filter));
+            // Deserialize the document with json_filter setting. keep buffer size in mind.
+            deserializeJson((*json_librelinkup), https.getStream(), DeserializationOption::Filter(*json_filter));
                 
-                // Print the result
-                //serializeJsonPretty(((*json_librelinkup)), Serial); Serial.println();
+            // Print the result
+            //serializeJsonPretty(((*json_librelinkup)), Serial); Serial.println();
 
-                llu_glucose_data.glucoseMeasurement          = (*json_librelinkup)["data"][0]["glucoseMeasurement"]["ValueInMgPerDl"].as<int>();
-                llu_glucose_data.trendArrow                  = (*json_librelinkup)["data"][0]["glucoseMeasurement"]["TrendArrow"].as<int>();
-                llu_glucose_data.measurement_color           = (*json_librelinkup)["data"][0]["glucoseMeasurement"]["MeasurementColor"].as<int>();
-                llu_glucose_data.str_TrendMessage            = (*json_librelinkup)["data"][0]["glucoseMeasurement"]["TrendMessage"].as<String>();
-                llu_glucose_data.str_measurement_timestamp   = (*json_librelinkup)["data"][0]["glucoseMeasurement"]["Timestamp"].as<String>();
+            llu_glucose_data.glucoseMeasurement          = (*json_librelinkup)["data"][0]["glucoseMeasurement"]["ValueInMgPerDl"].as<int>();
+            llu_glucose_data.trendArrow                  = (*json_librelinkup)["data"][0]["glucoseMeasurement"]["TrendArrow"].as<int>();
+            llu_glucose_data.measurement_color           = (*json_librelinkup)["data"][0]["glucoseMeasurement"]["MeasurementColor"].as<int>();
+            llu_glucose_data.str_TrendMessage            = (*json_librelinkup)["data"][0]["glucoseMeasurement"]["TrendMessage"].as<String>();
+            llu_glucose_data.str_measurement_timestamp   = (*json_librelinkup)["data"][0]["glucoseMeasurement"]["Timestamp"].as<String>();
 
                 /*
                 glucosetargetLow            = (*json_librelinkup)["data"][0]["targetLow"].as<int>();
@@ -824,31 +823,29 @@ uint16_t LIBRELINKUP::get_connection_data(void){
 
                 //DBGprint_LLU;Serial.print("glucoseMeasurement: ");Serial.print(glucoseMeasurement);
                 
-                if(llu_glucose_data.trendArrow == 0){
-                    llu_glucose_data.str_trendArrow = "no Data";
-                }else if(llu_glucose_data.trendArrow == 1){
-                    llu_glucose_data.str_trendArrow = "↓";
-                }else if(llu_glucose_data.trendArrow == 2){
-                    llu_glucose_data.str_trendArrow = "↘";
-                }else if(llu_glucose_data.trendArrow == 3){
-                    llu_glucose_data.str_trendArrow = "→";
-                }else if(llu_glucose_data.trendArrow == 4){
-                    llu_glucose_data.str_trendArrow = "↗";
-                }else if(llu_glucose_data.trendArrow == 5){
-                    llu_glucose_data.str_trendArrow = "↑";
-                }
-                
-                json_filter->clear();
-                json_librelinkup->clear();                                          //clears the data object
-
+            if(llu_glucose_data.trendArrow == 0){
+                llu_glucose_data.str_trendArrow = "no Data";
+            }else if(llu_glucose_data.trendArrow == 1){
+                llu_glucose_data.str_trendArrow = "↓";
+            }else if(llu_glucose_data.trendArrow == 2){
+                llu_glucose_data.str_trendArrow = "↘";
+            }else if(llu_glucose_data.trendArrow == 3){
+                llu_glucose_data.str_trendArrow = "→";
+            }else if(llu_glucose_data.trendArrow == 4){
+                llu_glucose_data.str_trendArrow = "↗";
+            }else if(llu_glucose_data.trendArrow == 5){
+                llu_glucose_data.str_trendArrow = "↑";
             }
+                
+            json_filter->clear();
+            json_librelinkup->clear();                                          //clears the data object
+
             result = 1;
-        }
-        else {
+        } else {
             DBGprint_LLU; Serial.printf("[HTTP] GET... failed, error: %s\r\n", https.errorToString(code).c_str());
             result = 0;
                         
-            if (code == HTTP_CODE_UNAUTHORIZED){    //Token Auth Error handling
+            if (code == HTTP_CODE_UNAUTHORIZED) {    // Token auth error handling
                 DBGprint_LLU; Serial.println("Error, wrong Token -> reauthorization...");
                 reauth_user();
                 json_filter->clear();
@@ -912,12 +909,11 @@ uint16_t LIBRELINKUP::get_graph_data(void){
         int code = https.GET();
         logger.debug("HTTP code=%d size=%d", code, https.getSize());
         
-        if (code > 0) {
-            if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
+        if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
 
-                // JSON filter
-                (*json_filter)["data"]["connection"]["targetLow"] = true;
-                (*json_filter)["data"]["connection"]["targetHigh"] = true;
+            // JSON filter
+            (*json_filter)["data"]["connection"]["targetLow"] = true;
+            (*json_filter)["data"]["connection"]["targetHigh"] = true;
 
                 (*json_filter)["data"]["connection"]["glucoseMeasurement"]["ValueInMgPerDl"] = true;
                 (*json_filter)["data"]["connection"]["glucoseMeasurement"]["TrendArrow"] = true;
@@ -945,42 +941,39 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 (*json_filter)["data"]["graphData"][0]["FactoryTimestamp"] = true;
                 (*json_filter)["data"]["graphData"][0]["Timestamp"] = true;
 
-                // Deserialize with filter
-                String body = https.getString();  // reads full response
-                DeserializationError err = deserializeJson((*json_librelinkup), body,
-                                          DeserializationOption::Filter(*json_filter));
+            // Deserialize with filter directly from stream to reduce heap pressure.
+            DeserializationError err = deserializeJson((*json_librelinkup), https.getStream(),
+                                      DeserializationOption::Filter(*json_filter));
 
-                if (err) {
-                    logger.debug("HTTPS deserialize failed: %s", err.c_str());
-                    json_filter->clear();
-                    json_librelinkup->clear();
-                    https.end();
-                    return 0;
-                }
-
-                // keep raw JSON as string (your getter)
-                last_graph_json = "";
-                serializeJson((*json_librelinkup), last_graph_json);
-
-                // ONE parser for both sources
-                bool ok = parse_graph_json_doc();
-
-                logger.debug("json_librelinkup: Used Bytes / Total Capacity: %u / %u",
-                             (unsigned)json_librelinkup->memoryUsage(),
-                             (unsigned)json_librelinkup->capacity());
-                logger.debug("json_filter     : Used Bytes / Total Capacity: %u / %u",
-                             (unsigned)json_filter->memoryUsage(),
-                             (unsigned)json_filter->capacity());
-
+            if (err) {
+                logger.debug("HTTPS deserialize failed: %s", err.c_str());
                 json_filter->clear();
                 json_librelinkup->clear();
-
-                result = ok ? 1 : 0;
+                https.end();
+                return 0;
             }
 
+            // keep raw JSON as string (your getter)
+            last_graph_json = "";
+            serializeJson((*json_librelinkup), last_graph_json);
+
+            // ONE parser for both sources
+            bool ok = parse_graph_json_doc();
+
+            logger.debug("json_librelinkup: Used Bytes / Total Capacity: %u / %u",
+                         (unsigned)json_librelinkup->memoryUsage(),
+                         (unsigned)json_librelinkup->capacity());
+            logger.debug("json_filter     : Used Bytes / Total Capacity: %u / %u",
+                         (unsigned)json_filter->memoryUsage(),
+                         (unsigned)json_filter->capacity());
+
+            json_filter->clear();
+            json_librelinkup->clear();
+
+            result = ok ? 1 : 0;
             https_llu_api_fetch_time = millis() - https_api_time_measure;
-        }
-        else {
+
+        } else {
             DBGprint_LLU; Serial.printf("[HTTP] GET... failed, error: %s\r\n", https.errorToString(code).c_str());
             logger.debug("[HTTP] GET... failed, error: %s\r\n", https.errorToString(code).c_str());
             result = 0;
@@ -1195,6 +1188,7 @@ bool LIBRELINKUP::setCAfromfile(WiFiClientSecure &client, const char* ca_file){
         size_t certSize = ca.size();
         if(certSize == 0){ // dummy value to check if file content is valid
             DBGprint_LLU;Serial.println("CA from File is empty. please downlaod again");
+            ca.close();
             return 0;
         }
         client.loadCACert(ca,certSize);
@@ -1223,9 +1217,12 @@ void LIBRELINKUP::showCAfromfile(const char* ca_file){
     logger.notice("Cert file size: %d bytes", certSize);
     file.close();
     
-    char* new_certificate;
-    new_certificate = (char*)malloc(certSize);
-    read2String(LittleFS, ca_file, new_certificate, certSize);
+    char* new_certificate = (char*)malloc(certSize + 1);
+    if (!new_certificate) {
+        logger.notice("Failed to allocate memory for certificate dump");
+        return;
+    }
+    read2String(LittleFS, ca_file, new_certificate, certSize + 1);
     Serial.printf("CA from: %s:\r\n%s\r\n",ca_file, new_certificate);
     logger.notice("CA from: %s:",ca_file);
     
@@ -1333,8 +1330,6 @@ bool LIBRELINKUP::read2String(fs::FS &fs, const char *path, char *myString, size
  * @return The parsed time_t value, or -1 if parsing fails.
  */
 time_t LIBRELINKUP::parseTimestamp(const char* timestampStr) {
-    setlocale(LC_TIME, "C"); // Erzwingt die C-Standard-Locale für AM/PM-Interpretation
-
     struct tm tm_time;
     memset(&tm_time, 0, sizeof(struct tm));
 
