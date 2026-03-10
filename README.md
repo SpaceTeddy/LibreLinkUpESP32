@@ -173,7 +173,7 @@ Use this checklist when adding the library from Git into another project.
 ```ini
 lib_deps =
   https://github.com/SpaceTeddy/LibreLinkUpESP32.git
-  bblanchon/ArduinoJson@^6.21.5
+  bblanchon/ArduinoJson@^7.2.2
   https://github.com/nomis/mcu-uuid-log.git
 ```
 

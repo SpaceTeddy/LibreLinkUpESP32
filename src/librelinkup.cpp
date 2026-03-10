@@ -17,10 +17,23 @@ static const char API_ROOT_CA[] PROGMEM = R"CERT(...)CERT";
 #define LIBRELINKUP_JSON_BUFFER_SIZE        16384 //6144
 #define LIBRELINKUP_FILTER_JSON_BUFFER_SIZE 2048  //1024
 
+// ArduinoJson v6 requires DynamicJsonDocument(capacity),
+// while v7 uses JsonDocument() with automatic capacity handling.
+#if ARDUINOJSON_VERSION_MAJOR >= 7
+using LibreLinkUpJsonDocument = JsonDocument;
+static LibreLinkUpJsonDocument* makeJsonDoc(size_t) {
+    return new LibreLinkUpJsonDocument();
+}
+#else
+using LibreLinkUpJsonDocument = DynamicJsonDocument;
+static LibreLinkUpJsonDocument* makeJsonDoc(size_t capacity) {
+    return new LibreLinkUpJsonDocument(capacity);
+}
+#endif
 
 // Initialize JsonDocument buffers (heap)
-JsonDocument* json_librelinkup = new JsonDocument();
-JsonDocument* json_filter = new JsonDocument();
+LibreLinkUpJsonDocument* json_librelinkup = makeJsonDoc(LIBRELINKUP_JSON_BUFFER_SIZE);
+LibreLinkUpJsonDocument* json_filter      = makeJsonDoc(LIBRELINKUP_FILTER_JSON_BUFFER_SIZE);
 
 //------------------------[uuid logger]-----------------------------------
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
