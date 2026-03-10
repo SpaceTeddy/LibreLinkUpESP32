@@ -18,9 +18,9 @@ static const char API_ROOT_CA[] PROGMEM = R"CERT(...)CERT";
 #define LIBRELINKUP_FILTER_JSON_BUFFER_SIZE 2048  //1024
 
 
-// Initialize DynamicJsonDocument buffers (heap)
-DynamicJsonDocument* json_librelinkup = new DynamicJsonDocument(LIBRELINKUP_JSON_BUFFER_SIZE);
-DynamicJsonDocument* json_filter = new DynamicJsonDocument(LIBRELINKUP_FILTER_JSON_BUFFER_SIZE);
+// Initialize JsonDocument buffers (heap)
+JsonDocument* json_librelinkup = new JsonDocument();
+JsonDocument* json_filter = new JsonDocument();
 
 //------------------------[uuid logger]-----------------------------------
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
@@ -644,9 +644,9 @@ uint16_t LIBRELINKUP::tou_user(void){
                 logger.debug("user_country      : %s",llu_login_data.user_country.c_str());
                 logger.debug("user_login_status : %d",llu_login_data.user_login_status);
 
-                logger.debug("tou json_librelinkup: Used Bytes / Total Capacity: %u / %u",
-                             (unsigned)json_librelinkup->memoryUsage(),
-                             (unsigned)json_librelinkup->capacity());
+                logger.debug("tou json_librelinkup: members=%u overflow=%u",
+                             (unsigned)json_librelinkup->size(),
+                             (unsigned)json_librelinkup->overflowed());
 
                 json_librelinkup->clear();                                          //clears the data object
             }
@@ -975,12 +975,12 @@ uint16_t LIBRELINKUP::get_graph_data(void){
             // ONE parser for both sources
             bool ok = parse_graph_json_doc();
 
-            logger.debug("json_librelinkup: Used Bytes / Total Capacity: %u / %u",
-                         (unsigned)json_librelinkup->memoryUsage(),
-                         (unsigned)json_librelinkup->capacity());
-            logger.debug("json_filter     : Used Bytes / Total Capacity: %u / %u",
-                         (unsigned)json_filter->memoryUsage(),
-                         (unsigned)json_filter->capacity());
+            logger.debug("json_librelinkup: members=%u overflow=%u",
+                         (unsigned)json_librelinkup->size(),
+                         (unsigned)json_librelinkup->overflowed());
+            logger.debug("json_filter     : members=%u overflow=%u",
+                         (unsigned)json_filter->size(),
+                         (unsigned)json_filter->overflowed());
 
             json_filter->clear();
             json_librelinkup->clear();

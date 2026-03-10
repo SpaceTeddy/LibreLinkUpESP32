@@ -1,6 +1,6 @@
 {
   "name": "LibreLinkUpESP32",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "LibreLinkUp/LibreView client library for ESP32 (Arduino framework)",
   "keywords": ["librelinkup", "libreview", "cgm", "esp32", "arduino"],
   "license": "GPL-2.0-only",
@@ -8,7 +8,7 @@
   "platforms": ["espressif32"],
   "headers": "librelinkup.h",
   "dependencies": [
-    "bblanchon/ArduinoJson@^6.21.5",
+    "bblanchon/ArduinoJson@^7.2.2",
     "https://github.com/nomis/mcu-uuid-log.git"
   ]
 }

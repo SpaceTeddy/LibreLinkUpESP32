@@ -20,8 +20,8 @@
 #include <Arduino.h>                ///< Arduino core functions
 #include <HTTPClient.h>             ///< HTTP client
 #include <WiFiClientSecure.h>       ///< TLS client
-#include <ArduinoJson.h>           ///< JSON parsing
-#include <mbedtls/sha256.h>        ///< SHA256 hashing
+#include <ArduinoJson.h>            ///< JSON parsing
+#include <mbedtls/sha256.h>         ///< SHA256 hashing
 #include <FS.h>
 #include <LittleFS.h>
 #include <string.h>
