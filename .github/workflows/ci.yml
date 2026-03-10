@@ -29,7 +29,7 @@ jobs:
       - name: Install library dependencies
         run: |
           pio pkg install --global \
-            --library "bblanchon/ArduinoJson@^6.21.5" \
+            --library "bblanchon/ArduinoJson@^7.2.2" \
             --library "https://github.com/nomis/mcu-uuid-log.git"
 
       - name: Build minimal example
