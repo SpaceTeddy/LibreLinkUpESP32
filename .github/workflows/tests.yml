@@ -1,0 +1,29 @@
+name: Manual Tests
+
+on:
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Install library dependencies
+        run: |
+          pio pkg install --global \
+            --library "bblanchon/ArduinoJson@^6.21.5" \
+            --library "https://github.com/nomis/mcu-uuid-log.git"
+
+      - name: Build unit tests
+        run: pio test -e esp32-s3-devkitc-1 --without-uploading
