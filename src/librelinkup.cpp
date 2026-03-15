@@ -604,9 +604,7 @@ uint16_t LIBRELINKUP::tou_user(void){
     uint8_t result = 0;
 
     if (http_client_.begin(secure_client_, base_url + url_user_tou)) {
-        //delay(10);        
         vTaskDelay(pdMS_TO_TICKS(10));
-        //Serial.println("Connected to: " + url);
 
         addDefaultLLUHeaders(http_client_);
         addAuthHeaders(http_client_, llu_login_data.user_token, "");
@@ -642,11 +640,11 @@ uint16_t LIBRELINKUP::tou_user(void){
                 logger.debug("user_id           : %s",llu_login_data.user_id.c_str());
                 logger.debug("user_country      : %s",llu_login_data.user_country.c_str());
                 logger.debug("user_login_status : %d",llu_login_data.user_login_status);
-
+                /*
                 logger.debug("tou json_librelinkup: members=%u overflow=%u",
                              (unsigned)json_librelinkup->size(),
                              (unsigned)json_librelinkup->overflowed());
-
+                */
                 json_librelinkup->clear();                                          //clears the data object
             }
         }
@@ -920,7 +918,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
         addAuthHeaders(http_client_, llu_login_data.user_token, llu_login_data.account_id);
 
         int code = http_client_.GET();
-        logger.debug("HTTP code=%d size=%d", code, http_client_.getSize());
+        //logger.debug("HTTP code=%d size=%d", code, http_client_.getSize());
         
         if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
 
@@ -928,31 +926,31 @@ uint16_t LIBRELINKUP::get_graph_data(void){
             (*json_filter)["data"]["connection"]["targetLow"] = true;
             (*json_filter)["data"]["connection"]["targetHigh"] = true;
 
-                (*json_filter)["data"]["connection"]["glucoseMeasurement"]["ValueInMgPerDl"] = true;
-                (*json_filter)["data"]["connection"]["glucoseMeasurement"]["TrendArrow"] = true;
-                (*json_filter)["data"]["connection"]["glucoseMeasurement"]["TrendMessage"] = true;
-                (*json_filter)["data"]["connection"]["glucoseMeasurement"]["MeasurementColor"] = true;
-                (*json_filter)["data"]["connection"]["glucoseMeasurement"]["FactoryTimestamp"] = true;
-                (*json_filter)["data"]["connection"]["glucoseMeasurement"]["Timestamp"] = true;
+            (*json_filter)["data"]["connection"]["glucoseMeasurement"]["ValueInMgPerDl"] = true;
+            (*json_filter)["data"]["connection"]["glucoseMeasurement"]["TrendArrow"] = true;
+            (*json_filter)["data"]["connection"]["glucoseMeasurement"]["TrendMessage"] = true;
+            (*json_filter)["data"]["connection"]["glucoseMeasurement"]["MeasurementColor"] = true;
+            (*json_filter)["data"]["connection"]["glucoseMeasurement"]["FactoryTimestamp"] = true;
+            (*json_filter)["data"]["connection"]["glucoseMeasurement"]["Timestamp"] = true;
 
-                (*json_filter)["data"]["connection"]["patientDevice"]["ll"] = true;
-                (*json_filter)["data"]["connection"]["patientDevice"]["hl"] = true;
-                (*json_filter)["data"]["connection"]["patientDevice"]["fixedLowAlarmValues"]["mgdl"] = true;
+            (*json_filter)["data"]["connection"]["patientDevice"]["ll"] = true;
+            (*json_filter)["data"]["connection"]["patientDevice"]["hl"] = true;
+            (*json_filter)["data"]["connection"]["patientDevice"]["fixedLowAlarmValues"]["mgdl"] = true;
 
-                (*json_filter)["data"]["connection"]["status"] = true;
-                (*json_filter)["data"]["connection"]["country"] = true;
-                (*json_filter)["data"]["connection"]["sensor"]["sn"] = true;
-                (*json_filter)["data"]["connection"]["sensor"]["deviceId"] = true;
-                (*json_filter)["data"]["connection"]["sensor"]["a"] = true;
+            (*json_filter)["data"]["connection"]["status"] = true;
+            (*json_filter)["data"]["connection"]["country"] = true;
+            (*json_filter)["data"]["connection"]["sensor"]["sn"] = true;
+            (*json_filter)["data"]["connection"]["sensor"]["deviceId"] = true;
+            (*json_filter)["data"]["connection"]["sensor"]["a"] = true;
 
-                (*json_filter)["data"]["activeSensors"][0]["sensor"]["deviceId"] = true;
-                (*json_filter)["data"]["activeSensors"][0]["sensor"]["sn"] = true;
-                (*json_filter)["data"]["activeSensors"][0]["sensor"]["a"] = true;
-                (*json_filter)["data"]["activeSensors"][0]["sensor"]["pt"] = true;
+            (*json_filter)["data"]["activeSensors"][0]["sensor"]["deviceId"] = true;
+            (*json_filter)["data"]["activeSensors"][0]["sensor"]["sn"] = true;
+            (*json_filter)["data"]["activeSensors"][0]["sensor"]["a"] = true;
+            (*json_filter)["data"]["activeSensors"][0]["sensor"]["pt"] = true;
 
-                (*json_filter)["data"]["graphData"][0]["ValueInMgPerDl"] = true;
-                (*json_filter)["data"]["graphData"][0]["FactoryTimestamp"] = true;
-                (*json_filter)["data"]["graphData"][0]["Timestamp"] = true;
+            (*json_filter)["data"]["graphData"][0]["ValueInMgPerDl"] = true;
+            (*json_filter)["data"]["graphData"][0]["FactoryTimestamp"] = true;
+            (*json_filter)["data"]["graphData"][0]["Timestamp"] = true;
 
             // Deserialize with filter from buffered body string (more robust with chunked transfer).
             String body = http_client_.getString();
@@ -973,21 +971,21 @@ uint16_t LIBRELINKUP::get_graph_data(void){
 
             // ONE parser for both sources
             bool ok = parse_graph_json_doc();
-
+            /*
             logger.debug("json_librelinkup: members=%u overflow=%u",
                          (unsigned)json_librelinkup->size(),
                          (unsigned)json_librelinkup->overflowed());
             logger.debug("json_filter     : members=%u overflow=%u",
                          (unsigned)json_filter->size(),
                          (unsigned)json_filter->overflowed());
-
+            */
             json_filter->clear();
             json_librelinkup->clear();
 
             result = ok ? 1 : 0;
             https_llu_api_fetch_time = millis() - https_api_time_measure;
             logger.debug("LLU API fetch time: %dms", https_llu_api_fetch_time);
-            
+
         } else {
             DBGprint_LLU; Serial.printf("[HTTP] GET... failed, error: %s\r\n", http_client_.errorToString(code).c_str());
             logger.debug("[HTTP] GET... failed, error: %s\r\n", http_client_.errorToString(code).c_str());
