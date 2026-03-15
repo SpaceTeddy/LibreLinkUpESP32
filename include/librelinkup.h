@@ -1,7 +1,7 @@
 /**
  * @file librelinkup.h
  * @brief LibreLinkUp API Client Library for ESP32
- * @version 1.2.3
+ * @version 1.2.4
  * 
  * Comprehensive interface for Abbott LibreLinkUp CGM system integration
  * Includes SSL/TLS management, sensor data processing, and API communication
@@ -35,7 +35,7 @@ namespace fs { class FS; }          ///< Forward declaration
  * @brief Global configuration and debug settings
  * @{
  */
-#define VERSION_LIBRELINKUP_LIB "1.2.3" ///< Library version identifier
+#define VERSION_LIBRELINKUP_LIB "1.2.4" ///< Library version identifier
 #define DBGprint_LLU Serial.printf("[%08dms][%s][%s] ",millis(),__FILE__,__func__); ///< Debug output formatter
 #define LIBRELINKUP_DEBUG 0         ///< Global debug flag (0=disabled)
 /** @} */
