@@ -986,7 +986,8 @@ uint16_t LIBRELINKUP::get_graph_data(void){
 
             result = ok ? 1 : 0;
             https_llu_api_fetch_time = millis() - https_api_time_measure;
-
+            logger.debug("LLU API fetch time: %dms", https_llu_api_fetch_time);
+            
         } else {
             DBGprint_LLU; Serial.printf("[HTTP] GET... failed, error: %s\r\n", http_client_.errorToString(code).c_str());
             logger.debug("[HTTP] GET... failed, error: %s\r\n", http_client_.errorToString(code).c_str());
