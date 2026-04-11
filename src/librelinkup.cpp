@@ -1309,11 +1309,9 @@ uint16_t LIBRELINKUP::download_root_ca_to_file(const char* download_url, const c
 
         if (code > 0) {
             if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
-
                 http_client_.writeToStream(&file);
             }
             result = 1;
-            file.close();
             Serial.println("finished");
             logger.notice("finished");
         }
@@ -1323,6 +1321,7 @@ uint16_t LIBRELINKUP::download_root_ca_to_file(const char* download_url, const c
             DBGprint_LLU; Serial.printf("[HTTP] GET... failed, error: %s\r\n", http_client_.errorToString(code).c_str());
             result = 0;
         }
+        file.close();  // always close, regardless of HTTP result
         // Free llu_http resources
         http_client_.end();
 
