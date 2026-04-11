@@ -712,12 +712,21 @@ uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
 
                 snprintf(base_url_buf, sizeof(base_url_buf),
                         "https://api-%s.libreview.io", region.c_str());
+
+                // Guard against redirect loops: only recurse if URL actually changed
+                if (String(base_url_buf) == baseUrlStr) {
+                    logger.notice("Redirect loop detected (URL unchanged), aborting");
+                    json_librelinkup->clear();
+                    secure_client_.stop();
+                    return 0;
+                }
+
                 base_url = base_url_buf;
 
                 json_librelinkup->clear();
                 secure_client_.stop();
 
-                // retry once
+                // retry once with new regional endpoint
                 return auth_user(user_email, user_password);
             }
 
@@ -997,7 +1006,8 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 json_filter->clear();
                 json_librelinkup->clear();
                 reauth_user();
-                result = get_graph_data();
+                // Do not recurse into get_graph_data() here — the FSM retries on the next cycle
+                // with the refreshed token. Recursion without a depth limit risks stack overflow.
             }
         }
 
@@ -1053,8 +1063,9 @@ bool LIBRELINKUP::parse_graph_json_doc() {
     llu_glucose_data.str_measurement_timestamp = "";
 
     // delete all historical glucose data
-    memset(llu_sensor_history_data.graph_data, 0, GRAPHDATAARRAYSIZE);
-    memset(llu_sensor_history_data.timestamp,  0, GRAPHDATAARRAYSIZE);
+    memset(llu_sensor_history_data.graph_data,        0, sizeof(llu_sensor_history_data.graph_data));
+    memset(llu_sensor_history_data.timestamp,         0, sizeof(llu_sensor_history_data.timestamp));
+    memset(llu_sensor_history_data.factory_timestamp, 0, sizeof(llu_sensor_history_data.factory_timestamp));
 
     // --- Parse current measurement ---
     llu_glucose_data.glucoseMeasurement               = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["ValueInMgPerDl"].as<int>();
@@ -1063,6 +1074,14 @@ bool LIBRELINKUP::parse_graph_json_doc() {
     llu_glucose_data.str_TrendMessage                 = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["TrendMessage"].as<String>();
     llu_glucose_data.str_measurement_timestamp        = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["Timestamp"].as<String>();
     llu_glucose_data.str_measurement_factorytimestamp = (*json_librelinkup)["data"]["connection"]["glucoseMeasurement"]["FactoryTimestamp"].as<String>();
+
+    // Validate that essential measurement fields were present in the JSON.
+    // glucoseMeasurement == 0 and empty timestamp together indicate a missing or
+    // malformed response — a real reading is always > 0 mg/dL.
+    if (llu_glucose_data.glucoseMeasurement == 0 && llu_glucose_data.str_measurement_timestamp.isEmpty()) {
+        logger.warning("parse_graph_json_doc: no valid measurement in JSON (glucose=0, timestamp empty)");
+        return false;
+    }
 
     // --- Parse targets/alarms ---
     llu_glucose_data.glucosetargetLow                 = (*json_librelinkup)["data"]["connection"]["targetLow"].as<int>();
