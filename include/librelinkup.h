@@ -248,7 +248,7 @@ private:
         
         String sensor_id = "";                       ///< Active sensor ID
         String sensor_sn = "";                       ///< Active sensor serialsensor_state
-        String LIBRE3PLUS_SERIAL_START = "0J000000"; ///< Libre 3 Plus serial prefix
+        String LIBRE3PLUS_SERIAL_START = "0G000000"; ///< Libre 3 Plus serial prefix
         uint32_t sensor_runtime = 0;                 ///< lifetime set to 0 as default  
         uint32_t sensor_activation_time = 0;         ///< Activation timestamp                
     } llu_sensor_data;
