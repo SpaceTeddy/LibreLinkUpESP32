@@ -72,6 +72,16 @@ enum SensorState : uint8_t {
     SENSOR_SHUT_DOWN = 5,           ///< Manual deactivation
     SENSOR_FAILURE = 6,             ///< Hardware malfunction
 };
+
+/**
+ * @enum SensorDeviceType
+ * @brief Sensor model derived from dtid.
+ */
+enum SensorDeviceType : uint16_t {
+    SENSOR_DEVICE_UNKNOWN = 0,      ///< Unknown/unsupported sensor type
+    SENSOR_DEVICE_LIBRE3 = 40066,   ///< FreeStyle Libre 3 (14 days)
+    SENSOR_DEVICE_LIBRE3_PLUS = 40068, ///< FreeStyle Libre 3 Plus (15 days)
+};
 /** @} */
 
 /**
@@ -575,8 +585,28 @@ public:
     int check_sensor_lifetime(uint32_t unix_activation_time, uint32_t sensor_runtime);
 
     /**
+     * @brief Map dtid to sensor device type enum.
+     * @param dtid Device type identifier from API
+     * @return SensorDeviceType enum value
+     */
+    SensorDeviceType get_sensor_device_type_from_dtid(uint16_t dtid) const;
+
+    /**
+     * @brief Get current sensor device type enum from cached sensor data.
+     * @return SensorDeviceType enum value
+     */
+    SensorDeviceType get_sensor_device_type() const;
+
+    /**
+     * @brief Convert sensor device type enum to human-readable name.
+     * @param type SensorDeviceType value
+     * @return Constant C-string name
+     */
+    const char* sensor_device_type_to_string(SensorDeviceType type) const;
+
+    /**
      * @brief Check sensor type and set remaining sensor time
-     * @return Sensor type code (1=15days, -1=14days, 0=error)
+     * @return Sensor type code (1=15days, -1=14days, 0=unknown/error)
      */
     int check_sensor_type();
 

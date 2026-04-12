@@ -442,30 +442,59 @@ int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint32_t s
 }
 
 /**
- * @brief Checks the sensor type based on its serial number.
+ * @brief Map raw dtid to SensorDeviceType enum.
+ */
+SensorDeviceType LIBRELINKUP::get_sensor_device_type_from_dtid(uint16_t dtid) const {
+    if (dtid == SENSOR_DEVICE_LIBRE3_PLUS) return SENSOR_DEVICE_LIBRE3_PLUS;
+    if (dtid == SENSOR_DEVICE_LIBRE3) return SENSOR_DEVICE_LIBRE3;
+    return SENSOR_DEVICE_UNKNOWN;
+}
+
+/**
+ * @brief Get current sensor device type from cached sensor data.
+ */
+SensorDeviceType LIBRELINKUP::get_sensor_device_type() const {
+    return get_sensor_device_type_from_dtid(llu_sensor_data.sensor_type_dtid);
+}
+
+/**
+ * @brief Convert sensor device type enum to readable name.
+ */
+const char* LIBRELINKUP::sensor_device_type_to_string(SensorDeviceType type) const {
+    switch (type) {
+    case SENSOR_DEVICE_LIBRE3_PLUS: return "FreeStyle Libre 3 Plus";
+    case SENSOR_DEVICE_LIBRE3: return "FreeStyle Libre 3";
+    default: return "Unknown";
+    }
+}
+
+/**
+ * @brief Checks the sensor type based on dtid and updates runtime.
  *
- * This function compares the sensor's dtid value with a known reference to determine its type.
+ * This function maps sensor dtid to a typed enum and determines runtime.
  * It also sets the sensor runtime based on the identified type.
  * 40068 = FreeStyle Libre 3 Plus (15 days runtime)
  * 40066 = FreeStyle Libre 3      (14 days runtime)  
  * @return 1 if the sensor is identified as Libre 3 Plus, -1 if it's Libre 3, and 0 if unknown or not checked.
  */
 int LIBRELINKUP::check_sensor_type() {
+    const SensorDeviceType type = get_sensor_device_type();
+
     // Re-evaluate every call: dtid may be unavailable on early cycles and appear later.
-    if (llu_sensor_data.sensor_type_dtid == 40068) {
-        logger.debug("Sensor Type: Libre 3 Plus");
+    if (type == SENSOR_DEVICE_LIBRE3_PLUS) {
+        logger.debug("Sensor Type: %s", sensor_device_type_to_string(type));
         llu_sensor_data.sensor_runtime = UNIXTIME15DAYS; // 15 days runtime
         return 1;
     }
 
-    if (llu_sensor_data.sensor_type_dtid == 40066) {
-        logger.debug("Sensor Type: Libre 3");
+    if (type == SENSOR_DEVICE_LIBRE3) {
+        logger.debug("Sensor Type: %s", sensor_device_type_to_string(type));
         llu_sensor_data.sensor_runtime = UNIXTIME14DAYS; // 14 days runtime
         return -1;
     }
 
     // Unknown sensor type (keep previously learned runtime if any).
-    logger.debug("Sensor Type: unknown sensor type (dtid=%d)", (int)llu_sensor_data.sensor_type_dtid);
+    logger.debug("Sensor Type: %s (dtid=%d)", sensor_device_type_to_string(type), (int)llu_sensor_data.sensor_type_dtid);
     if (llu_sensor_data.sensor_runtime == UNIXTIME15DAYS) return 1;
     if (llu_sensor_data.sensor_runtime == UNIXTIME14DAYS) return -1;
     return 0;
