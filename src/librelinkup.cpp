@@ -451,9 +451,26 @@ SensorDeviceType LIBRELINKUP::get_sensor_device_type_from_dtid(uint16_t dtid) co
 }
 
 /**
+ * @brief Derive sensor type from serial number prefix.
+ * Rule: prefix > "0G000" => Libre 3 Plus, otherwise Libre 3.
+ */
+SensorDeviceType LIBRELINKUP::get_sensor_device_type_from_sn(const String& sn) const {
+    if (sn.length() < 5) return SENSOR_DEVICE_UNKNOWN;
+
+    String prefix = sn.substring(0, 5);
+    prefix.toUpperCase();
+
+    return (prefix.compareTo("0G000") > 0) ? SENSOR_DEVICE_LIBRE3_PLUS : SENSOR_DEVICE_LIBRE3;
+}
+
+/**
  * @brief Get current sensor device type from cached sensor data.
  */
 SensorDeviceType LIBRELINKUP::get_sensor_device_type() const {
+    const SensorDeviceType by_sn = get_sensor_device_type_from_sn(llu_sensor_data.sensor_sn);
+    if (by_sn != SENSOR_DEVICE_UNKNOWN) return by_sn;
+
+    // Fallback for older payloads where serial is missing.
     return get_sensor_device_type_from_dtid(llu_sensor_data.sensor_type_dtid);
 }
 
@@ -469,18 +486,17 @@ const char* LIBRELINKUP::sensor_device_type_to_string(SensorDeviceType type) con
 }
 
 /**
- * @brief Checks the sensor type based on dtid and updates runtime.
+ * @brief Checks the sensor type and updates runtime.
  *
- * This function maps sensor dtid to a typed enum and determines runtime.
+ * This function determines type primarily from serial number and sets runtime.
  * It also sets the sensor runtime based on the identified type.
- * 40068 = FreeStyle Libre 3 Plus (15 days runtime)
- * 40066 = FreeStyle Libre 3      (14 days runtime)  
+ * Fallback uses dtid if serial is unavailable.
  * @return 1 if the sensor is identified as Libre 3 Plus, -1 if it's Libre 3, and 0 if unknown or not checked.
  */
 int LIBRELINKUP::check_sensor_type() {
     const SensorDeviceType type = get_sensor_device_type();
 
-    // Re-evaluate every call: dtid may be unavailable on early cycles and appear later.
+    // Re-evaluate every call: serial/dtid may be unavailable on early cycles and appear later.
     if (type == SENSOR_DEVICE_LIBRE3_PLUS) {
         logger.debug("Sensor Type: %s", sensor_device_type_to_string(type));
         llu_sensor_data.sensor_runtime = UNIXTIME15DAYS; // 15 days runtime

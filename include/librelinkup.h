@@ -592,6 +592,14 @@ public:
     SensorDeviceType get_sensor_device_type_from_dtid(uint16_t dtid) const;
 
     /**
+     * @brief Derive sensor device type from serial number prefix.
+     * Rule: prefix > "0G000" => Libre 3 Plus, otherwise Libre 3.
+     * @param sn Sensor serial number
+     * @return SensorDeviceType enum value
+     */
+    SensorDeviceType get_sensor_device_type_from_sn(const String& sn) const;
+
+    /**
      * @brief Get current sensor device type enum from cached sensor data.
      * @return SensorDeviceType enum value
      */
