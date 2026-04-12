@@ -460,7 +460,7 @@ SensorDeviceType LIBRELINKUP::get_sensor_device_type_from_sn(const String& sn) c
     String prefix = sn.substring(0, 5);
     prefix.toUpperCase();
 
-    return (prefix.compareTo("0G000") > 0) ? SENSOR_DEVICE_LIBRE3_PLUS : SENSOR_DEVICE_LIBRE3;
+    return (prefix.compareTo(SENSOR_SN_LIBRE3PLUS_THRESHOLD) > 0) ? SENSOR_DEVICE_LIBRE3_PLUS : SENSOR_DEVICE_LIBRE3;
 }
 
 /**

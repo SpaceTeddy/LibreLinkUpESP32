@@ -89,9 +89,10 @@ enum SensorDeviceType : uint16_t {
  * @brief Global configuration of Glucose data
  * @{
  */
-#define DATA_POINTS 141 +1          /// 12 hours * 12 points per hour (5-minute intervals) +1 for last point
-#define INTERVAL_SECONDS 300        /// 5 minutes in seconds
-#define REQUIRED_DATA_POINTS 141    /// count of max. historical data points
+#define DATA_POINTS 141 +1                      /// 12 hours * 12 points per hour (5-minute intervals) +1 for last point
+#define INTERVAL_SECONDS 300                    /// 5 minutes in seconds
+#define REQUIRED_DATA_POINTS 141                /// count of max. historical data points
+#define SENSOR_SN_LIBRE3PLUS_THRESHOLD "0G000"  /// SN prefix threshold: > threshold => Libre 3 Plus
 /** @} */
 
 
