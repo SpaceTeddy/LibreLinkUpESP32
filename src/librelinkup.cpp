@@ -451,27 +451,23 @@ int LIBRELINKUP::check_sensor_lifetime(uint32_t unix_activation_time, uint32_t s
  * @return 1 if the sensor is identified as Libre 3 Plus, -1 if it's Libre 3, and 0 if unknown or not checked.
  */
 int LIBRELINKUP::check_sensor_type() {
-    static bool already_checked = false;  ///< Flag to avoid multiple checks
-
-    // Check if a serial number exists and has not yet been checked
-    if (llu_sensor_data.sensor_type_dtid == 40068 && !already_checked) {
-        // Sensor is Libre 3 Plus
+    // Re-evaluate every call: dtid may be unavailable on early cycles and appear later.
+    if (llu_sensor_data.sensor_type_dtid == 40068) {
         logger.debug("Sensor Type: Libre 3 Plus");
         llu_sensor_data.sensor_runtime = UNIXTIME15DAYS; // 15 days runtime
-        already_checked = true;
         return 1;
+    }
 
-    } else if (llu_sensor_data.sensor_type_dtid == 40066 && !already_checked) {
-        // Sensor is Libre 3
+    if (llu_sensor_data.sensor_type_dtid == 40066) {
         logger.debug("Sensor Type: Libre 3");
         llu_sensor_data.sensor_runtime = UNIXTIME14DAYS; // 14 days runtime
-        already_checked = true;
         return -1;
-    } 
+    }
 
-    // Unknown sensor type
-    logger.debug("Sensor Type: unknown sensor type");
-    already_checked = true;
+    // Unknown sensor type (keep previously learned runtime if any).
+    logger.debug("Sensor Type: unknown sensor type (dtid=%d)", (int)llu_sensor_data.sensor_type_dtid);
+    if (llu_sensor_data.sensor_runtime == UNIXTIME15DAYS) return 1;
+    if (llu_sensor_data.sensor_runtime == UNIXTIME14DAYS) return -1;
     return 0;
 }
 
@@ -1094,7 +1090,9 @@ bool LIBRELINKUP::parse_graph_json_doc() {
     llu_sensor_data.sensor_sn                 = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["sn"].as<String>();
     llu_sensor_data.sensor_state              = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["pt"].as<int>();
     llu_sensor_data.sensor_activation_time    = (*json_librelinkup)["data"]["activeSensors"][0]["sensor"]["a"].as<int>();
-    llu_sensor_data.sensor_type_dtid          = (*json_librelinkup)["data"]["activeSensors"][0]["device"]["dtid"].as<int>();
+    const int dtid_active = (*json_librelinkup)["data"]["activeSensors"][0]["device"]["dtid"].as<int>();
+    const int dtid_conn = (*json_librelinkup)["data"]["connection"]["patientDevice"]["dtid"].as<int>();
+    llu_sensor_data.sensor_type_dtid = (dtid_active > 0) ? (uint16_t)dtid_active : (uint16_t)dtid_conn;
 
     // --- Update timezone offset once ---
     update_tz_offset_once(
