@@ -711,21 +711,25 @@ uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
     set_credentials(user_email, user_password);
 
     // important: pro call reset
+    breadcrumb_ = "auth.reset_clients";
     secure_client_.stop();
     http_client_.end();
 
+    breadcrumb_ = "auth.http_begin";
     if (http_client_.begin(secure_client_, base_url + url_user_auth)) {
         vTaskDelay(pdMS_TO_TICKS(10));
 
         addDefaultLLUHeaders(http_client_);
 
         String httpRequestData = "{\"email\":\"" + user_email + "\",\"password\":\"" + user_password + "\"}";
+        breadcrumb_ = "auth.http_post";
         int code = http_client_.POST(httpRequestData);
 
         logger.debug("HTTP Code: [%d]\r\n", code);
 
         if (code > 0 && (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY)) {
 
+            breadcrumb_ = "auth.deserialize";
             deserializeJson((*json_librelinkup), http_client_.getStream());
             //serializeJsonPretty(*json_librelinkup, Serial); Serial.println();
 
@@ -778,6 +782,7 @@ uint16_t LIBRELINKUP::auth_user(String user_email, String user_password){
         secure_client_.stop();
     }
 
+    breadcrumb_ = "idle";
     return result;
 }
 
@@ -929,37 +934,43 @@ uint16_t LIBRELINKUP::get_graph_data(void){
     int8_t result = 0;
     uint32_t https_api_time_measure = millis();
 
+    breadcrumb_ = "graph.check_client";
     check_client();
 
-    // get user ID and Token, if AuthToken not already pulled 
+    // get user ID and Token, if AuthToken not already pulled
     if (llu_login_data.user_id == "" || llu_login_data.user_token == "" || llu_login_data.user_token == "null") {
         logger.debug("Auth User: no user_id available!");
         DBGprint_LLU; Serial.println("Auth User: no user_id available!");
+        breadcrumb_ = "graph.reauth";
         if (reauth_user() == 0) {
             logger.warning("Auth User failed: missing credentials or reauth failed");
+            breadcrumb_ = "idle";
             return 0;
         }
         if (llu_login_data.user_login_status == 4) {
             DBGprint_LLU; Serial.println("LLU Login: Tou required");
             logger.debug("LLU Login: Tou required");
+            breadcrumb_ = "graph.tou";
             tou_user();
         }
     }
 
-    // create API url 
+    // create API url
     url_graph = "/llu/connections/" + llu_login_data.user_id + "/graph";
 
-    // get API graph data from LibreView server 
+    // get API graph data from LibreView server
+    breadcrumb_ = "graph.http_begin";
     if (http_client_.begin(secure_client_, base_url + url_graph)) {
-        vTaskDelay(pdMS_TO_TICKS(10));        
+        vTaskDelay(pdMS_TO_TICKS(10));
 
         // Add LLU default headers
         addDefaultLLUHeaders(http_client_);
         addAuthHeaders(http_client_, llu_login_data.user_token, llu_login_data.account_id);
 
+        breadcrumb_ = "graph.http_get";
         int code = http_client_.GET();
         //logger.debug("HTTP code=%d size=%d", code, http_client_.getSize());
-        
+
         if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
 
             // JSON filter
@@ -995,7 +1006,9 @@ uint16_t LIBRELINKUP::get_graph_data(void){
             (*json_filter)["data"]["graphData"][0]["Timestamp"] = true;
 
             // Deserialize with filter from buffered body string (more robust with chunked transfer).
+            breadcrumb_ = "graph.get_string";
             String body = http_client_.getString();
+            breadcrumb_ = "graph.deserialize";
             DeserializationError err = deserializeJson((*json_librelinkup), body,
                                       DeserializationOption::Filter(*json_filter));
 
@@ -1004,6 +1017,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 json_filter->clear();
                 json_librelinkup->clear();
                 http_client_.end();
+                breadcrumb_ = "idle";
                 return 0;
             }
 
@@ -1012,6 +1026,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
             serializeJson((*json_librelinkup), last_graph_json);
 
             // ONE parser for both sources
+            breadcrumb_ = "graph.parse_doc";
             bool ok = parse_graph_json_doc();
             /*
             logger.debug("json_librelinkup: members=%u overflow=%u",
@@ -1038,6 +1053,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 logger.debug("Error, wrong Token -> reauthorization...");
                 json_filter->clear();
                 json_librelinkup->clear();
+                breadcrumb_ = "graph.reauth";
                 reauth_user();
                 // Do not recurse into get_graph_data() here — the FSM retries on the next cycle
                 // with the refreshed token. Recursion without a depth limit risks stack overflow.
@@ -1045,6 +1061,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
         }
 
         // Free llu_http resources
+        breadcrumb_ = "graph.http_end";
         http_client_.end();
 
     } else {
@@ -1058,6 +1075,8 @@ uint16_t LIBRELINKUP::get_graph_data(void){
         secure_client_.flush();
         secure_client_.stop();
     }
+
+    breadcrumb_ = "idle";
 
     return result;
 }
