@@ -142,6 +142,12 @@ private:
     // last fetched graph json data
     String last_graph_json;
 
+    /// Marks the last blocking step entered by get_graph_data()/auth_user().
+    /// Diagnostic only: lets an external watchdog task report where a hung
+    /// call is stuck, since it keeps running independently of the blocked
+    /// caller task. Not synchronized (plain pointer write is atomic on ESP32).
+    volatile const char* breadcrumb_ = "idle";
+
 public:
 
     /**
@@ -342,6 +348,16 @@ public:
 
     LLU_Status& status() { return llu_status; }
     const LLU_Status& status() const { return llu_status; }
+
+    /**
+     * @brief Last blocking-call marker (e.g. "graph.http_get").
+     *
+     * Safe to call from another task while get_graph_data()/auth_user() is
+     * in progress on the caller's task. Intended for hang diagnosis: if the
+     * caller task stalls, this reports the step it was last known to be in.
+     * @return Short static string identifying the last entered step.
+     */
+    const char* breadcrumb() const { return (const char*)breadcrumb_; }
 
     int8_t& timezone_offset() { return timezone; }
     int8_t timezone_offset() const { return timezone; }
