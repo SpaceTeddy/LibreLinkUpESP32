@@ -17,6 +17,13 @@ static const char API_ROOT_CA[] PROGMEM = R"CERT(...)CERT";
 #define LIBRELINKUP_JSON_BUFFER_SIZE        16384 //6144
 #define LIBRELINKUP_FILTER_JSON_BUFFER_SIZE 2048  //1024
 
+// Bounds for reading a response body. See read_body_bounded().
+#define LIBRELINKUP_BODY_IDLE_TIMEOUT_MS    10000  ///< no new bytes from the peer
+#define LIBRELINKUP_BODY_TOTAL_TIMEOUT_MS   30000  ///< hard cap for one body read
+/// TLS handshake cap. WiFiClientSecure defaults to 120 s, which is long enough
+/// to look like a hang and to outlast a typical application watchdog.
+#define LIBRELINKUP_TLS_HANDSHAKE_TIMEOUT_S 15
+
 // Initialize JsonDocument buffers (heap)
 JsonDocument* json_librelinkup = new JsonDocument();
 JsonDocument* json_filter      = new JsonDocument();
@@ -24,6 +31,78 @@ JsonDocument* json_filter      = new JsonDocument();
 //------------------------[uuid logger]-----------------------------------
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 //------------------------------------------------------------------------
+
+/**
+ * @brief Read a response body with hard time bounds.
+ *
+ * Replacement for HTTPClient::getString(), which cannot be used safely here.
+ * getString() delegates to writeToStreamDataBlock(), whose loop
+ *
+ *     while(connected() && (len > 0 || len == -1))
+ *
+ * has no time-based bail-out -- its only exit is connected() going false. On a
+ * half-open TLS connection that never happens: WiFiClientSecure::connected()
+ * reaches ssl_client's data_to_read(), which deliberately does not treat
+ * MBEDTLS_ERR_SSL_WANT_READ as an error, so _connected stays true while
+ * available() stays 0 and the loop spins forever on delay(1). Because it
+ * yields, no watchdog fires -- the calling task is simply stuck for good.
+ * A missing Content-Length (len == -1) makes it worse: the length condition is
+ * then permanently true, which is exactly the shape of response this client
+ * asks for (HTTP/1.1 plus "Connection: close").
+ *
+ * This version keeps the same read strategy but bails out on an idle peer and
+ * on a total deadline, so a wedged connection costs seconds instead of forever.
+ *
+ * @param http      Connected HTTPClient, after a successful GET/POST.
+ * @param out       Receives the body. Cleared first.
+ * @param idle_ms   Abort after this long with no new bytes.
+ * @param total_ms  Abort after this long overall.
+ * @return true if the body was read to a clean end (peer closed, or
+ *         Content-Length satisfied); false if a timeout cut it short.
+ */
+static bool read_body_bounded(HTTPClient& http, String& out,
+                              uint32_t idle_ms, uint32_t total_ms)
+{
+    out = "";
+
+    WiFiClient* stream = http.getStreamPtr();
+    if (stream == nullptr) return false;
+
+    const int content_len = http.getSize();
+    if (content_len > 0) out.reserve((unsigned int)content_len);
+
+    const uint32_t started_ms = millis();
+    uint32_t last_data_ms = started_ms;
+    char buf[513]; // 512 payload + NUL
+
+    for (;;) {
+        const size_t avail = stream->available();
+        if (avail) {
+            const size_t want = (avail > 512) ? 512 : avail;
+            const size_t n = stream->readBytes(buf, want);
+            if (n > 0) {
+                buf[n] = '\0';       // JSON carries no embedded NULs
+                out.concat(buf);
+                last_data_ms = millis();
+            }
+            if (content_len > 0 && (int)out.length() >= content_len) return true;
+        } else {
+            if (!stream->connected()) return true;  // peer closed = end of body
+            if ((uint32_t)(millis() - last_data_ms) > idle_ms) {
+                logger.debug("body read: peer idle for >%ums, aborting after %u bytes",
+                             (unsigned)idle_ms, (unsigned)out.length());
+                return false;
+            }
+            delay(1);
+        }
+
+        if ((uint32_t)(millis() - started_ms) > total_ms) {
+            logger.debug("body read: exceeded %ums total, aborting after %u bytes",
+                         (unsigned)total_ms, (unsigned)out.length());
+            return false;
+        }
+    }
+}
 
 /**
  * @brief Converts time components to milliseconds.
@@ -231,9 +310,16 @@ uint8_t LIBRELINKUP::begin(uint8_t use_cert) {
 
     // setup http client
     http_client_.useHTTP10(false);
-    http_client_.setTimeout(10000);
+    http_client_.setTimeout(10000);          // ms - inter-byte timeout for headers
+    http_client_.setConnectTimeout(10000);   // ms - was left at the 5000 default
     http_client_.setReuse(false);
-    secure_client_.setTimeout(10000);
+    // NOTE: WiFiClientSecure::setTimeout() takes SECONDS, not milliseconds. The
+    // previous value of 10000 therefore meant ~2 h 46 min. It was inert only by
+    // accident (HTTPClient::connect() overwrites _timeout), but any direct user
+    // of get_wifisecureclient() inherited it.
+    secure_client_.setTimeout(10);           // s
+    // Cap the handshake; the default is 120 s.
+    secure_client_.setHandshakeTimeout(LIBRELINKUP_TLS_HANDSHAKE_TIMEOUT_S); // s
     //secure_client_.setNoDelay(false);
 
     if(use_cert == 0){
@@ -1016,7 +1102,17 @@ uint16_t LIBRELINKUP::get_graph_data(void){
 
             // Deserialize with filter from buffered body string (more robust with chunked transfer).
             breadcrumb_ = "graph.get_string";
-            String body = http_client_.getString();
+            String body;
+            if (!read_body_bounded(http_client_, body,
+                                   LIBRELINKUP_BODY_IDLE_TIMEOUT_MS,
+                                   LIBRELINKUP_BODY_TOTAL_TIMEOUT_MS)) {
+                logger.debug("HTTPS body read timed out");
+                json_filter->clear();
+                json_librelinkup->clear();
+                http_client_.end();
+                breadcrumb_ = "idle";
+                return 0;
+            }
             breadcrumb_ = "graph.deserialize";
             DeserializationError err = deserializeJson((*json_librelinkup), body,
                                       DeserializationOption::Filter(*json_filter));
