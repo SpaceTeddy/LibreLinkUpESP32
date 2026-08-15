@@ -20,6 +20,9 @@ static const char API_ROOT_CA[] PROGMEM = R"CERT(...)CERT";
 // Bounds for reading a response body. See read_body_bounded().
 #define LIBRELINKUP_BODY_IDLE_TIMEOUT_MS    10000  ///< no new bytes from the peer
 #define LIBRELINKUP_BODY_TOTAL_TIMEOUT_MS   30000  ///< hard cap for one body read
+/// Pre-allocation for bodies that arrive without a Content-Length (i.e. chunked).
+/// The graph response is the big one at roughly 15 kB.
+#define LIBRELINKUP_BODY_RESERVE_BYTES      16384
 /// TLS handshake cap. WiFiClientSecure defaults to 120 s, which is long enough
 /// to look like a hang and to outlast a typical application watchdog.
 #define LIBRELINKUP_TLS_HANDSHAKE_TIMEOUT_S 15
@@ -53,13 +56,117 @@ static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
  * This version keeps the same read strategy but bails out on an idle peer and
  * on a total deadline, so a wedged connection costs seconds instead of forever.
  *
+ * Reading the socket directly does mean giving up what HTTPClient does on top
+ * of it, so the framing is handled here: a "Transfer-Encoding: chunked" body
+ * arrives as hex length lines wrapped around the payload, and those have to be
+ * stripped or the result is not JSON. Cloudflare sends the graph response that
+ * way (small responses like the login carry a Content-Length instead).
+ *
  * @param http      Connected HTTPClient, after a successful GET/POST.
- * @param out       Receives the body. Cleared first.
+ * @param out       Receives the decoded body. Cleared first.
  * @param idle_ms   Abort after this long with no new bytes.
  * @param total_ms  Abort after this long overall.
- * @return true if the body was read to a clean end (peer closed, or
- *         Content-Length satisfied); false if a timeout cut it short.
+ * @return true if the body was read to a clean end (final chunk, Content-Length
+ *         satisfied, or peer closed on a close-delimited body); false if a
+ *         timeout, an early close, or an allocation failure cut it short.
  */
+
+/** @brief Time bounds carried through one body read. */
+struct BodyReadDeadline {
+    uint32_t started_ms;    ///< when the read began
+    uint32_t last_data_ms;  ///< when the last byte arrived
+    uint32_t idle_ms;       ///< abort after this long without new bytes
+    uint32_t total_ms;      ///< abort after this long overall
+};
+
+/**
+ * @brief Wait until the stream is readable, the peer closed, or a bound expired.
+ *
+ * available() is checked before connected() so that data still buffered from a
+ * peer that has already sent FIN is never discarded -- reporting "closed" while
+ * bytes remain would silently truncate the body.
+ *
+ * @return 1 data available, 0 peer closed with nothing left, -1 timed out.
+ */
+static int body_wait_readable(WiFiClient* stream, BodyReadDeadline& dl)
+{
+    for (;;) {
+        if (stream->available()) return 1;
+        if (!stream->connected()) return 0;
+
+        if ((uint32_t)(millis() - dl.last_data_ms) > dl.idle_ms) {
+            logger.debug("body read: peer idle for >%ums", (unsigned)dl.idle_ms);
+            return -1;
+        }
+        if ((uint32_t)(millis() - dl.started_ms) > dl.total_ms) {
+            logger.debug("body read: exceeded %ums total", (unsigned)dl.total_ms);
+            return -1;
+        }
+        delay(1);
+    }
+}
+
+/**
+ * @brief Append exactly @p want bytes to @p out.
+ * @return true on success; false on timeout, early close, or allocation failure.
+ */
+static bool body_read_exact(WiFiClient* stream, String& out, size_t want,
+                            BodyReadDeadline& dl)
+{
+    char buf[513]; // 512 payload + NUL
+
+    while (want > 0) {
+        const int ready = body_wait_readable(stream, dl);
+        if (ready < 0) return false;
+        if (ready == 0) {   // closed before the announced length arrived
+            logger.debug("body read: peer closed %u bytes short", (unsigned)want);
+            return false;
+        }
+
+        size_t n = stream->available();
+        if (n > want) n = want;
+        if (n > 512)  n = 512;
+
+        const size_t got = stream->readBytes(buf, n);
+        if (got == 0) continue;
+
+        buf[got] = '\0';    // JSON carries no embedded NULs
+        if (!out.concat(buf)) {
+            logger.debug("body read: out of heap after %u bytes", (unsigned)out.length());
+            return false;
+        }
+        dl.last_data_ms = millis();
+        want -= got;
+    }
+    return true;
+}
+
+/**
+ * @brief Read one CRLF-terminated control line (chunk size or chunk trailer).
+ * @return true on success; false on timeout, early close, or an over-long line.
+ */
+static bool body_read_line(WiFiClient* stream, String& line, BodyReadDeadline& dl)
+{
+    line = "";
+
+    for (;;) {
+        const int ready = body_wait_readable(stream, dl);
+        if (ready <= 0) return false;
+
+        const int c = stream->read();
+        if (c < 0) continue;
+        dl.last_data_ms = millis();
+
+        if (c == '\n') return true;
+        if (c != '\r') line.concat((char)c);
+
+        if (line.length() > 32) {   // a chunk-size line is a handful of hex digits
+            logger.debug("body read: over-long control line");
+            return false;
+        }
+    }
+}
+
 static bool read_body_bounded(HTTPClient& http, String& out,
                               uint32_t idle_ms, uint32_t total_ms)
 {
@@ -68,38 +175,61 @@ static bool read_body_bounded(HTTPClient& http, String& out,
     WiFiClient* stream = http.getStreamPtr();
     if (stream == nullptr) return false;
 
-    const int content_len = http.getSize();
-    if (content_len > 0) out.reserve((unsigned int)content_len);
+    const int  content_len = http.getSize();
+    const bool chunked     = http.header("Transfer-Encoding").equalsIgnoreCase("chunked");
 
-    const uint32_t started_ms = millis();
-    uint32_t last_data_ms = started_ms;
-    char buf[513]; // 512 payload + NUL
+    // Reserve up front. Growing a ~15 kB body 512 bytes at a time reallocates
+    // constantly and fragments the heap; concat() then fails somewhere in the
+    // middle and the body is silently short.
+    out.reserve(content_len > 0 ? (unsigned int)content_len
+                                : (unsigned int)LIBRELINKUP_BODY_RESERVE_BYTES);
 
-    for (;;) {
-        const size_t avail = stream->available();
-        if (avail) {
-            const size_t want = (avail > 512) ? 512 : avail;
-            const size_t n = stream->readBytes(buf, want);
-            if (n > 0) {
-                buf[n] = '\0';       // JSON carries no embedded NULs
-                out.concat(buf);
-                last_data_ms = millis();
-            }
-            if (content_len > 0 && (int)out.length() >= content_len) return true;
-        } else {
-            if (!stream->connected()) return true;  // peer closed = end of body
-            if ((uint32_t)(millis() - last_data_ms) > idle_ms) {
-                logger.debug("body read: peer idle for >%ums, aborting after %u bytes",
-                             (unsigned)idle_ms, (unsigned)out.length());
+    const uint32_t now = millis();
+    BodyReadDeadline dl{ now, now, idle_ms, total_ms };
+
+    if (chunked) {
+        for (;;) {
+            String size_line;
+            if (!body_read_line(stream, size_line, dl)) return false;
+
+            // "1ff8", or "1ff8;ext=val" -- strtol stops at the ';' by itself.
+            char* end = nullptr;
+            const long chunk_len = strtol(size_line.c_str(), &end, 16);
+            if (end == size_line.c_str() || chunk_len < 0) {
+                logger.debug("body read: bad chunk size '%s'", size_line.c_str());
                 return false;
             }
-            delay(1);
-        }
+            if (chunk_len == 0) return true;    // the 0-chunk ends the body
 
-        if ((uint32_t)(millis() - started_ms) > total_ms) {
-            logger.debug("body read: exceeded %ums total, aborting after %u bytes",
-                         (unsigned)total_ms, (unsigned)out.length());
-            return false;
+            if (!body_read_exact(stream, out, (size_t)chunk_len, dl)) return false;
+
+            String trailer;                     // CRLF after each chunk's data
+            if (!body_read_line(stream, trailer, dl)) return false;
+        }
+    }
+
+    if (content_len > 0) {
+        return body_read_exact(stream, out, (size_t)content_len, dl);
+    }
+
+    // Neither chunked nor Content-Length: the body ends when the peer closes.
+    for (;;) {
+        const int ready = body_wait_readable(stream, dl);
+        if (ready < 0) return false;
+        if (ready == 0) return true;            // clean close = end of body
+
+        char buf[513];
+        size_t n = stream->available();
+        if (n > 512) n = 512;
+
+        const size_t got = stream->readBytes(buf, n);
+        if (got > 0) {
+            buf[got] = '\0';
+            if (!out.concat(buf)) {
+                logger.debug("body read: out of heap after %u bytes", (unsigned)out.length());
+                return false;
+            }
+            dl.last_data_ms = millis();
         }
     }
 }
@@ -321,6 +451,12 @@ uint8_t LIBRELINKUP::begin(uint8_t use_cert) {
     // Cap the handshake; the default is 120 s.
     secure_client_.setHandshakeTimeout(LIBRELINKUP_TLS_HANDSHAKE_TIMEOUT_S); // s
     //secure_client_.setNoDelay(false);
+
+    // read_body_bounded() reads the socket directly and therefore has to do its
+    // own chunk decoding; it needs this header to know when. Keys are copied by
+    // HTTPClient and survive across requests, so once here is enough.
+    static const char* kCollectedHeaders[] = { "Transfer-Encoding" };
+    http_client_.collectHeaders(kCollectedHeaders, 1);
 
     if(use_cert == 0){
         secure_client_.setInsecure();
@@ -1118,7 +1254,12 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                                       DeserializationOption::Filter(*json_filter));
 
             if (err) {
-                logger.debug("HTTPS deserialize failed: %s", err.c_str());
+                // Log the head of the body too: it tells apart the ways this
+                // fails at a glance -- '{' means valid JSON that got truncated,
+                // a hex digit means undecoded chunk framing, '<' means the CDN
+                // answered with an HTML error page instead of the API.
+                logger.debug("HTTPS deserialize failed: %s (body %u bytes, starts: %.80s)",
+                             err.c_str(), (unsigned)body.length(), body.c_str());
                 json_filter->clear();
                 json_librelinkup->clear();
                 http_client_.end();
