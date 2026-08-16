@@ -18,7 +18,7 @@ static const char API_ROOT_CA[] PROGMEM = R"CERT(...)CERT";
 #define LIBRELINKUP_FILTER_JSON_BUFFER_SIZE 2048  //1024
 
 // Bounds for reading a response body. See read_body_bounded().
-#define LIBRELINKUP_BODY_IDLE_TIMEOUT_MS    10000  ///< no new bytes from the peer
+#define LIBRELINKUP_BODY_IDLE_TIMEOUT_MS    20000  ///< no new bytes from the peer
 #define LIBRELINKUP_BODY_TOTAL_TIMEOUT_MS   30000  ///< hard cap for one body read
 /// Pre-allocation for bodies that arrive without a Content-Length (i.e. chunked).
 /// The graph response is the big one at roughly 15 kB.
