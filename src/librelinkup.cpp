@@ -13,10 +13,6 @@
 // Google Trust Services R4 Root CA for api.libreview.io
 static const char API_ROOT_CA[] PROGMEM = R"CERT(...)CERT";
 
-// Global JSON buffers
-#define LIBRELINKUP_JSON_BUFFER_SIZE        16384 //6144
-#define LIBRELINKUP_FILTER_JSON_BUFFER_SIZE 2048  //1024
-
 // Bounds for reading a response body. See read_body_bounded().
 #define LIBRELINKUP_BODY_IDLE_TIMEOUT_MS    20000  ///< no new bytes from the peer
 #define LIBRELINKUP_BODY_TOTAL_TIMEOUT_MS   30000  ///< hard cap for one body read
@@ -29,11 +25,95 @@ static const char API_ROOT_CA[] PROGMEM = R"CERT(...)CERT";
 
 // Initialize JsonDocument buffers (heap)
 JsonDocument* json_librelinkup = new JsonDocument();
-JsonDocument* json_filter      = new JsonDocument();
+
+/// @name Deserialization filters
+/// @brief The two response schemas this client filters on, built once.
+///
+/// Both used to share a single document that was populated inside every fetch
+/// and cleared again afterwards -- roughly thirty JsonDocument insertions per
+/// cycle, on the exact code path that then needs a contiguous ~16 kB block for
+/// the response body. The schemas are compile-time constant, so that churn was
+/// pure heap fragmentation. Sharing one document also meant the two schemas
+/// were only ever kept apart by the clear() at the end of each caller.
+/// @{
+static JsonDocument* json_filter_connection = new JsonDocument();
+static JsonDocument* json_filter_graph      = new JsonDocument();
+/// @}
 
 //------------------------[uuid logger]-----------------------------------
 static uuid::log::Logger logger{F(__FILE__), uuid::log::Facility::CONSOLE};
 //------------------------------------------------------------------------
+
+/**
+ * @brief Populate the filter documents on first use.
+ *
+ * Deliberately lazy rather than done in begin(): begin() returns early on a
+ * DNS failure, and the filters must not depend on having gotten that far.
+ */
+static void ensure_json_filters()
+{
+    static bool built = false;
+    if (built) return;
+    built = true;
+
+    JsonDocument& conn = *json_filter_connection;
+    conn["data"][0]["glucoseMeasurement"]["Timestamp"]       = true;
+    conn["data"][0]["glucoseMeasurement"]["ValueInMgPerDl"]  = true;
+    conn["data"][0]["glucoseMeasurement"]["TrendArrow"]      = true;
+    conn["data"][0]["glucoseMeasurement"]["TrendMessage"]    = true;
+    conn["data"][0]["glucoseMeasurement"]["MeasurementColor"] = true;
+
+    // Kept from the original call site: fields the connection endpoint also
+    // returns, parsed only via the graph response today.
+    /*
+    conn["data"][0]["targetLow"]  = true;
+    conn["data"][0]["targetHigh"] = true;
+
+    conn["data"][0]["sensor"]["deviceId"] = true;
+    conn["data"][0]["sensor"]["sn"]       = true;
+    conn["data"][0]["sensor"]["a"]        = true;
+    conn["data"][0]["sensor"]["pt"]       = true;
+
+    conn["data"][0]["patientDevice"]["ll"] = true;
+    conn["data"][0]["patientDevice"]["hl"] = true;
+    conn["data"][0]["patientDevice"]["fixedLowAlarmValues"]["mgdl"] = true;
+
+    conn["ticket"]["token"]   = true;
+    conn["ticket"]["expires"] = true;
+    */
+
+    JsonDocument& graph = *json_filter_graph;
+    graph["data"]["connection"]["targetLow"]  = true;
+    graph["data"]["connection"]["targetHigh"] = true;
+
+    graph["data"]["connection"]["glucoseMeasurement"]["ValueInMgPerDl"]   = true;
+    graph["data"]["connection"]["glucoseMeasurement"]["TrendArrow"]       = true;
+    graph["data"]["connection"]["glucoseMeasurement"]["TrendMessage"]     = true;
+    graph["data"]["connection"]["glucoseMeasurement"]["MeasurementColor"] = true;
+    graph["data"]["connection"]["glucoseMeasurement"]["FactoryTimestamp"] = true;
+    graph["data"]["connection"]["glucoseMeasurement"]["Timestamp"]        = true;
+
+    graph["data"]["connection"]["patientDevice"]["dtid"] = true;
+    graph["data"]["connection"]["patientDevice"]["ll"]   = true;
+    graph["data"]["connection"]["patientDevice"]["hl"]   = true;
+    graph["data"]["connection"]["patientDevice"]["fixedLowAlarmValues"]["mgdl"] = true;
+
+    graph["data"]["connection"]["status"]              = true;
+    graph["data"]["connection"]["country"]             = true;
+    graph["data"]["connection"]["sensor"]["sn"]        = true;
+    graph["data"]["connection"]["sensor"]["deviceId"]  = true;
+    graph["data"]["connection"]["sensor"]["a"]         = true;
+
+    graph["data"]["activeSensors"][0]["sensor"]["deviceId"] = true;
+    graph["data"]["activeSensors"][0]["sensor"]["sn"]       = true;
+    graph["data"]["activeSensors"][0]["sensor"]["a"]        = true;
+    graph["data"]["activeSensors"][0]["sensor"]["pt"]       = true;
+    graph["data"]["activeSensors"][0]["device"]["dtid"]     = true;
+
+    graph["data"]["graphData"][0]["ValueInMgPerDl"]   = true;
+    graph["data"]["graphData"][0]["FactoryTimestamp"] = true;
+    graph["data"]["graphData"][0]["Timestamp"]        = true;
+}
 
 /**
  * @brief Read a response body with hard time bounds.
@@ -107,14 +187,40 @@ static int body_wait_readable(WiFiClient* stream, BodyReadDeadline& dl)
 }
 
 /**
+ * @brief Append one readable batch of at most @p limit bytes to @p out.
+ *
+ * The caller must have established that the stream is readable; this does not
+ * wait. Shared by the length-delimited and the close-delimited reader below so
+ * the append/NUL/heap-check sequence exists exactly once.
+ *
+ * @return bytes appended, or -1 on allocation failure.
+ */
+static int body_append_available(WiFiClient* stream, String& out, size_t limit)
+{
+    char buf[513]; // 512 payload + NUL
+
+    size_t n = stream->available();
+    if (n > limit)          n = limit;
+    if (n > sizeof(buf) - 1) n = sizeof(buf) - 1;
+
+    const size_t got = stream->readBytes(buf, n);
+    if (got == 0) return 0;
+
+    buf[got] = '\0';    // JSON carries no embedded NULs
+    if (!out.concat(buf)) {
+        logger.debug("body read: out of heap after %u bytes", (unsigned)out.length());
+        return -1;
+    }
+    return (int)got;
+}
+
+/**
  * @brief Append exactly @p want bytes to @p out.
  * @return true on success; false on timeout, early close, or allocation failure.
  */
 static bool body_read_exact(WiFiClient* stream, String& out, size_t want,
                             BodyReadDeadline& dl)
 {
-    char buf[513]; // 512 payload + NUL
-
     while (want > 0) {
         const int ready = body_wait_readable(stream, dl);
         if (ready < 0) return false;
@@ -123,20 +229,12 @@ static bool body_read_exact(WiFiClient* stream, String& out, size_t want,
             return false;
         }
 
-        size_t n = stream->available();
-        if (n > want) n = want;
-        if (n > 512)  n = 512;
-
-        const size_t got = stream->readBytes(buf, n);
+        const int got = body_append_available(stream, out, want);
+        if (got < 0) return false;
         if (got == 0) continue;
 
-        buf[got] = '\0';    // JSON carries no embedded NULs
-        if (!out.concat(buf)) {
-            logger.debug("body read: out of heap after %u bytes", (unsigned)out.length());
-            return false;
-        }
         dl.last_data_ms = millis();
-        want -= got;
+        want -= (size_t)got;
     }
     return true;
 }
@@ -218,19 +316,9 @@ static bool read_body_bounded(HTTPClient& http, String& out,
         if (ready < 0) return false;
         if (ready == 0) return true;            // clean close = end of body
 
-        char buf[513];
-        size_t n = stream->available();
-        if (n > 512) n = 512;
-
-        const size_t got = stream->readBytes(buf, n);
-        if (got > 0) {
-            buf[got] = '\0';
-            if (!out.concat(buf)) {
-                logger.debug("body read: out of heap after %u bytes", (unsigned)out.length());
-                return false;
-            }
-            dl.last_data_ms = millis();
-        }
+        const int got = body_append_available(stream, out, SIZE_MAX);
+        if (got < 0) return false;
+        if (got > 0) dl.last_data_ms = millis();
     }
 }
 
@@ -1056,32 +1144,13 @@ uint16_t LIBRELINKUP::get_connection_data(void){
 
         if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
 
-            // The filter: it contains "true" for each value we want to keep
-            (*json_filter)["data"][0]["glucoseMeasurement"]["Timestamp"] = true;
-            (*json_filter)["data"][0]["glucoseMeasurement"]["ValueInMgPerDl"] = true;
-            (*json_filter)["data"][0]["glucoseMeasurement"]["TrendArrow"] = true;
-            (*json_filter)["data"][0]["glucoseMeasurement"]["TrendMessage"] = true;
-            (*json_filter)["data"][0]["glucoseMeasurement"]["MeasurementColor"] = true;
-                
-            /*
-            (*json_filter)["data"][0]["targetLow"] = true;
-            (*json_filter)["data"][0]["targetHigh"] = true;
+            // The filter ("true" for each value we want to keep) lives in
+            // ensure_json_filters(); it is schema, not per-request state.
+            ensure_json_filters();
 
-            (*json_filter)["data"][0]["sensor"]["deviceId"] = true;
-            (*json_filter)["data"][0]["sensor"]["sn"] = true;
-            (*json_filter)["data"][0]["sensor"]["a"] = true;
-            (*json_filter)["data"][0]["sensor"]["pt"] = true;
-
-            (*json_filter)["data"][0]["patientDevice"]["ll"] = true;
-            (*json_filter)["data"][0]["patientDevice"]["hl"] = true;
-            (*json_filter)["data"][0]["patientDevice"]["fixedLowAlarmValues"]["mgdl"] = true;
-                
-            (*json_filter)["ticket"]["token"] = true;
-            (*json_filter)["ticket"]["expires"] = true;
-            */
-
-            // Deserialize the document with json_filter setting. keep buffer size in mind.
-            deserializeJson((*json_librelinkup), http_client_.getStream(), DeserializationOption::Filter(*json_filter));
+            // Deserialize the document with the connection filter.
+            deserializeJson((*json_librelinkup), http_client_.getStream(),
+                            DeserializationOption::Filter(*json_filter_connection));
                 
             // Print the result
             //serializeJsonPretty(((*json_librelinkup)), Serial); Serial.println();
@@ -1124,18 +1193,16 @@ uint16_t LIBRELINKUP::get_connection_data(void){
                 llu_glucose_data.str_trendArrow = "↑";
             }
                 
-            json_filter->clear();
             json_librelinkup->clear();                                          //clears the data object
 
             result = 1;
         } else {
             DBGprint_LLU; Serial.printf("[HTTP] GET... failed, error: %s\r\n", http_client_.errorToString(code).c_str());
             result = 0;
-                        
+
             if (code == HTTP_CODE_UNAUTHORIZED) {    // Token auth error handling
                 DBGprint_LLU; Serial.println("Error, wrong Token -> reauthorization...");
                 reauth_user();
-                json_filter->clear();
                 json_librelinkup->clear();
             }
         }
@@ -1204,37 +1271,9 @@ uint16_t LIBRELINKUP::get_graph_data(void){
 
         if (code == HTTP_CODE_OK || code == HTTP_CODE_MOVED_PERMANENTLY) {
 
-            // JSON filter
-            (*json_filter)["data"]["connection"]["targetLow"] = true;
-            (*json_filter)["data"]["connection"]["targetHigh"] = true;
-
-            (*json_filter)["data"]["connection"]["glucoseMeasurement"]["ValueInMgPerDl"] = true;
-            (*json_filter)["data"]["connection"]["glucoseMeasurement"]["TrendArrow"] = true;
-            (*json_filter)["data"]["connection"]["glucoseMeasurement"]["TrendMessage"] = true;
-            (*json_filter)["data"]["connection"]["glucoseMeasurement"]["MeasurementColor"] = true;
-            (*json_filter)["data"]["connection"]["glucoseMeasurement"]["FactoryTimestamp"] = true;
-            (*json_filter)["data"]["connection"]["glucoseMeasurement"]["Timestamp"] = true;
-
-            (*json_filter)["data"]["connection"]["patientDevice"]["dtid"] = true;
-            (*json_filter)["data"]["connection"]["patientDevice"]["ll"] = true;
-            (*json_filter)["data"]["connection"]["patientDevice"]["hl"] = true;
-            (*json_filter)["data"]["connection"]["patientDevice"]["fixedLowAlarmValues"]["mgdl"] = true;
-
-            (*json_filter)["data"]["connection"]["status"] = true;
-            (*json_filter)["data"]["connection"]["country"] = true;
-            (*json_filter)["data"]["connection"]["sensor"]["sn"] = true;
-            (*json_filter)["data"]["connection"]["sensor"]["deviceId"] = true;
-            (*json_filter)["data"]["connection"]["sensor"]["a"] = true;
-
-            (*json_filter)["data"]["activeSensors"][0]["sensor"]["deviceId"] = true;
-            (*json_filter)["data"]["activeSensors"][0]["sensor"]["sn"] = true;
-            (*json_filter)["data"]["activeSensors"][0]["sensor"]["a"] = true;
-            (*json_filter)["data"]["activeSensors"][0]["sensor"]["pt"] = true;
-            (*json_filter)["data"]["activeSensors"][0]["device"]["dtid"] = true;
-
-            (*json_filter)["data"]["graphData"][0]["ValueInMgPerDl"] = true;
-            (*json_filter)["data"]["graphData"][0]["FactoryTimestamp"] = true;
-            (*json_filter)["data"]["graphData"][0]["Timestamp"] = true;
+            // The JSON filter lives in ensure_json_filters(); it is schema,
+            // not per-request state.
+            ensure_json_filters();
 
             // Deserialize with filter from buffered body string (more robust with chunked transfer).
             breadcrumb_ = "graph.get_string";
@@ -1243,7 +1282,6 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                                    LIBRELINKUP_BODY_IDLE_TIMEOUT_MS,
                                    LIBRELINKUP_BODY_TOTAL_TIMEOUT_MS)) {
                 logger.debug("HTTPS body read timed out");
-                json_filter->clear();
                 json_librelinkup->clear();
                 http_client_.end();
                 breadcrumb_ = "idle";
@@ -1251,7 +1289,7 @@ uint16_t LIBRELINKUP::get_graph_data(void){
             }
             breadcrumb_ = "graph.deserialize";
             DeserializationError err = deserializeJson((*json_librelinkup), body,
-                                      DeserializationOption::Filter(*json_filter));
+                                      DeserializationOption::Filter(*json_filter_graph));
 
             if (err) {
                 // Log the head of the body too: it tells apart the ways this
@@ -1260,12 +1298,19 @@ uint16_t LIBRELINKUP::get_graph_data(void){
                 // answered with an HTML error page instead of the API.
                 logger.debug("HTTPS deserialize failed: %s (body %u bytes, starts: %.80s)",
                              err.c_str(), (unsigned)body.length(), body.c_str());
-                json_filter->clear();
                 json_librelinkup->clear();
                 http_client_.end();
                 breadcrumb_ = "idle";
                 return 0;
             }
+
+            // Release the ~16 kB body before serializeJson() below allocates
+            // last_graph_json. Otherwise body, the parsed document and the
+            // re-serialized copy are all resident at the same time, which is
+            // the worst moment to be asking this heap for a contiguous block.
+            // Assigning a temporary (not "") is what actually frees the buffer;
+            // String::operator=(const char*) keeps the capacity.
+            body = String();
 
             // keep raw JSON as string (your getter)
             last_graph_json = "";
@@ -1278,11 +1323,10 @@ uint16_t LIBRELINKUP::get_graph_data(void){
             logger.debug("json_librelinkup: members=%u overflow=%u",
                          (unsigned)json_librelinkup->size(),
                          (unsigned)json_librelinkup->overflowed());
-            logger.debug("json_filter     : members=%u overflow=%u",
-                         (unsigned)json_filter->size(),
-                         (unsigned)json_filter->overflowed());
+            logger.debug("json_filter_graph: members=%u overflow=%u",
+                         (unsigned)json_filter_graph->size(),
+                         (unsigned)json_filter_graph->overflowed());
             */
-            json_filter->clear();
             json_librelinkup->clear();
 
             result = ok ? 1 : 0;
@@ -1297,7 +1341,6 @@ uint16_t LIBRELINKUP::get_graph_data(void){
             if (code == HTTP_CODE_UNAUTHORIZED) {
                 DBGprint_LLU; Serial.println("Error, wrong Token -> reauthorization...");
                 logger.debug("Error, wrong Token -> reauthorization...");
-                json_filter->clear();
                 json_librelinkup->clear();
                 breadcrumb_ = "graph.reauth";
                 reauth_user();
