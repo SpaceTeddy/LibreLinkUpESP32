@@ -18,7 +18,11 @@
  * @{
  */
 #include <Arduino.h>                ///< Arduino core functions
+#include <WiFi.h>                   ///< WiFi object (no longer transitive in core 3.x)
 #include <HTTPClient.h>             ///< HTTP client
+#include <WiFiClient.h>             ///< Plain TCP client (Arduino core 3.x no
+                                    ///< longer pulls it in via WiFiClientSecure;
+                                    ///< there it is a typedef for NetworkClient)
 #include <WiFiClientSecure.h>       ///< TLS client
 #include <ArduinoJson.h>            ///< JSON parsing
 #include <mbedtls/sha256.h>         ///< SHA256 hashing
@@ -554,7 +558,7 @@ public:
      *               (e.g. an embedded Mozilla root CA bundle). The caller owns the
      *               bundle's storage and must keep it valid for the client's lifetime.
      */
-    void setCACertBundle(const uint8_t* bundle);
+    void setCACertBundle(const uint8_t* bundle, size_t size);
 
     /**
      * @brief Display certificate contents
