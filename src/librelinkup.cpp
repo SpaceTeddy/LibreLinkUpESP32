@@ -1348,6 +1348,28 @@ uint16_t LIBRELINKUP::get_graph_data(void){
         } else {
             DBGprint_LLU; Serial.printf("[HTTP] GET... failed, error: %s\r\n", http_client_.errorToString(code).c_str());
             logger.debug("[HTTP] GET... failed, error: %s\r\n", http_client_.errorToString(code).c_str());
+
+            // "connection refused" is HTTPClient's blanket answer whenever
+            // connect() returns false -- and with WiFiClientSecure that covers
+            // DNS failure, a TCP refusal and a failed TLS handshake alike. The
+            // real reason is only in Arduino's ESP_LOGE output on Serial, which
+            // is unavailable on a deployed device. Resolve the host and pull the
+            // TLS error string out so the uuid log (telnet) can tell them apart.
+            if (code < 0) {
+                const String host = extractHost(String(base_url));
+                IPAddress api_ip;
+                const bool dns_ok = WiFi.hostByName(host.c_str(), api_ip);
+
+                char tls_err[128] = {0};
+                secure_client_.lastError(tls_err, sizeof(tls_err));
+
+                logger.err("[HTTP] graph GET failed: host=%s dns=%s errno=%d (%s) tls=%s",
+                           host.c_str(),
+                           dns_ok ? api_ip.toString().c_str() : "FAILED",
+                           errno, strerror(errno),
+                           tls_err[0] ? tls_err : "-");
+            }
+
             result = 0;
 
             if (code == HTTP_CODE_UNAUTHORIZED) {
