@@ -1325,7 +1325,15 @@ uint16_t LIBRELINKUP::get_graph_data(void){
             body = String();
 
             // keep raw JSON as string (your getter)
+            // Reserve the exact size upfront: without it, growing this String
+            // from empty to ~15 kB via serializeJson()'s incremental writes
+            // means multiple realloc+copy cycles, and CONFIG_SPIRAM_MALLOC_
+            // ALWAYSINTERNAL=4096 puts all of that in PSRAM -- right when the
+            // RGB panel's DMA is scanning that same PSRAM continuously. One
+            // reservation instead of many regrowths cuts that churn down to a
+            // single allocation.
             last_graph_json = "";
+            last_graph_json.reserve(measureJson(*json_librelinkup) + 1);
             serializeJson((*json_librelinkup), last_graph_json);
 
             // ONE parser for both sources
@@ -1422,7 +1430,9 @@ bool LIBRELINKUP::ingest_graph_json(const uint8_t* data, size_t len) {
     }
 
     // keep raw JSON as string (optional but helpful)
+    // See the sibling call site above for why the reserve() matters.
     last_graph_json = "";
+    last_graph_json.reserve(measureJson(*json_librelinkup) + 1);
     serializeJson(*json_librelinkup, last_graph_json);
 
     bool ok = parse_graph_json_doc();
@@ -1497,15 +1507,23 @@ bool LIBRELINKUP::parse_graph_json_doc() {
             llu_sensor_history_data.factory_timestamp[i] = 0;
         } else {
             // parse timestamps and factory timestamps and convert to time_t
-            String timestampStr =
-                (*json_librelinkup)["data"]["graphData"][i]["Timestamp"].as<String>();
-            time_t ts = parseTimestamp(timestampStr.c_str());
-            llu_sensor_history_data.timestamp[i] = ts;
+            // .as<const char*>() instead of .as<String>(): points straight
+            // into ArduinoJson's own parsed buffer, no new allocation. The
+            // previous .as<String>() here allocated (then immediately
+            // discarded) an Arduino String per field per point -- up to
+            // ~282 small internal-RAM alloc/free cycles every fetch (2 per
+            // point x up to 141 points), a churn/fragmentation source
+            // distinct from the one-big-buffer PSRAM issues found elsewhere
+            // in this fetch path. parseTimestamp() strncpy()s its argument
+            // immediately with no null check, so guard against a missing
+            // field here instead (matches the graph_data[i]==0 branch above).
+            const char *timestampCStr =
+                (*json_librelinkup)["data"]["graphData"][i]["Timestamp"].as<const char*>();
+            llu_sensor_history_data.timestamp[i] = timestampCStr ? parseTimestamp(timestampCStr) : 0;
 
-            String factory_timestampStr =
-                (*json_librelinkup)["data"]["graphData"][i]["FactoryTimestamp"].as<String>();
-            ts = parseTimestamp(factory_timestampStr.c_str());
-            llu_sensor_history_data.factory_timestamp[i] = ts;
+            const char *factoryCStr =
+                (*json_librelinkup)["data"]["graphData"][i]["FactoryTimestamp"].as<const char*>();
+            llu_sensor_history_data.factory_timestamp[i] = factoryCStr ? parseTimestamp(factoryCStr) : 0;
         }
     }
 
